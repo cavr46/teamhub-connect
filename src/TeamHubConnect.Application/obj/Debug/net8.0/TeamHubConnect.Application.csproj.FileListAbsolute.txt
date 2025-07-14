@@ -1,0 +1,6 @@
+/workspaces/teamhub-connect/src/TeamHubConnect.Application/obj/Debug/net8.0/TeamHubConnect.Application.csproj.AssemblyReference.cache
+/workspaces/teamhub-connect/src/TeamHubConnect.Application/obj/Debug/net8.0/TeamHubConnect.Application.GeneratedMSBuildEditorConfig.editorconfig
+/workspaces/teamhub-connect/src/TeamHubConnect.Application/obj/Debug/net8.0/TeamHubConnect.Application.AssemblyInfoInputs.cache
+/workspaces/teamhub-connect/src/TeamHubConnect.Application/obj/Debug/net8.0/TeamHubConnect.Application.AssemblyInfo.cs
+/workspaces/teamhub-connect/src/TeamHubConnect.Application/obj/Debug/net8.0/TeamHubConnect.Application.csproj.CoreCompileInputs.cache
+/workspaces/teamhub-connect/src/TeamHubConnect.Application/obj/Debug/net8.0/TeamHubConnect.Application.sourcelink.json

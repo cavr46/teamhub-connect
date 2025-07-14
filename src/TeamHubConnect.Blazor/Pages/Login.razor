@@ -1,0 +1,402 @@
+@page "/login"
+@using TeamHubConnect.Blazor.Store.Auth
+@using Fluxor
+@inherits FluxorComponent
+@inject IState<AuthState> AuthState
+@inject IDispatcher Dispatcher
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="logo">
+                <MudIcon Icon="@Icons.Material.Filled.Forum" Color="Color.Primary" Style="font-size: 3rem;" />
+                <MudText Typo="Typo.h3" Color="Color.Primary" Class="ml-3 font-weight-bold">
+                    TeamHub Connect
+                </MudText>
+            </div>
+            <MudText Typo="Typo.h5" Class="mt-4 mb-2 text-center">
+                Welcome Back
+            </MudText>
+            <MudText Typo="Typo.body1" Color="Color.Secondary" Class="text-center mb-6">
+                Sign in to continue to your workspace
+            </MudText>
+        </div>
+
+        <MudForm @ref="form" @bind-IsValid="@isFormValid" Class="login-form">
+            <MudTextField @bind-Value="loginModel.Email"
+                         Label="Email Address"
+                         Variant="Variant.Outlined"
+                         Required="true"
+                         RequiredError="Email is required"
+                         Validation="@(new EmailAddressAttribute())"
+                         FullWidth="true"
+                         Margin="Margin.Normal"
+                         Adornment="Adornment.Start"
+                         AdornmentIcon="@Icons.Material.Filled.Email" />
+
+            <MudTextField @bind-Value="loginModel.Password"
+                         Label="Password"
+                         Variant="Variant.Outlined"
+                         InputType="@passwordInput"
+                         Required="true"
+                         RequiredError="Password is required"
+                         FullWidth="true"
+                         Margin="Margin.Normal"
+                         Adornment="Adornment.End"
+                         AdornmentIcon="@passwordIcon"
+                         OnAdornmentClick="TogglePasswordVisibility" />
+
+            <div class="login-options">
+                <MudCheckBox @bind-Checked="rememberMe" Color="Color.Primary" Label="Remember me" />
+                <MudLink Href="/forgot-password" Color="Color.Primary">Forgot password?</MudLink>
+            </div>
+
+            <MudButton Variant="Variant.Filled"
+                      Color="Color.Primary"
+                      Size="Size.Large"
+                      FullWidth="true"
+                      Class="mt-4"
+                      StartIcon="@Icons.Material.Filled.Login"
+                      OnClick="HandleLogin"
+                      Disabled="@(!isFormValid || AuthState.Value.IsLoading)">
+                @if (AuthState.Value.IsLoading)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <span class="ml-2">Signing in...</span>
+                }
+                else
+                {
+                    <span>Sign In</span>
+                }
+            </MudButton>
+        </MudForm>
+
+        <MudDivider Class="my-6" />
+
+        <!-- Social Login Options -->
+        <div class="social-login">
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="text-center mb-4">
+                Or continue with
+            </MudText>
+            
+            <div class="social-buttons">
+                <MudButton Variant="Variant.Outlined"
+                          StartIcon="@Icons.Custom.Brands.Google"
+                          FullWidth="true"
+                          Class="mb-2"
+                          OnClick="@(() => HandleSocialLogin("Google"))">
+                    Continue with Google
+                </MudButton>
+                
+                <MudButton Variant="Variant.Outlined"
+                          StartIcon="@Icons.Custom.Brands.Microsoft"
+                          FullWidth="true"
+                          Class="mb-2"
+                          OnClick="@(() => HandleSocialLogin("Microsoft"))">
+                    Continue with Microsoft
+                </MudButton>
+                
+                <MudButton Variant="Variant.Outlined"
+                          StartIcon="@Icons.Custom.Brands.GitHub"
+                          FullWidth="true"
+                          OnClick="@(() => HandleSocialLogin("GitHub"))">
+                    Continue with GitHub
+                </MudButton>
+            </div>
+        </div>
+
+        <div class="login-footer">
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="text-center">
+                Don't have an account? 
+                <MudLink Href="/register" Color="Color.Primary">Sign up for free</MudLink>
+            </MudText>
+        </div>
+
+        <!-- Demo Credentials -->
+        <MudExpansionPanels Class="mt-4">
+            <MudExpansionPanel Text="Demo Credentials">
+                <div class="demo-credentials">
+                    <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Info">
+                        <strong>Demo Account:</strong><br/>
+                        Email: demo@teamhub.com<br/>
+                        Password: Demo2024!
+                    </MudAlert>
+                    <MudButton Variant="Variant.Text" 
+                              Color="Color.Primary" 
+                              OnClick="FillDemoCredentials"
+                              Class="mt-2">
+                        Fill Demo Credentials
+                    </MudButton>
+                </div>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    </div>
+
+    <!-- Background Animation -->
+    <div class="background-animation">
+        <div class="floating-shapes">
+            @for (int i = 0; i < 6; i++)
+            {
+                <div class="shape shape-@i"></div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private MudForm form = null!;
+    private bool isFormValid;
+    private bool rememberMe;
+    private InputType passwordInput = InputType.Password;
+    private string passwordIcon = Icons.Material.Filled.VisibilityOff;
+
+    private LoginModel loginModel = new();
+
+    protected override void OnInitialized()
+    {
+        if (AuthState.Value.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Subscribe to auth state changes
+            if (AuthState.Value.IsAuthenticated)
+            {
+                Navigation.NavigateTo("/");
+            }
+            
+            if (!string.IsNullOrEmpty(AuthState.Value.ErrorMessage))
+            {
+                Snackbar.Add(AuthState.Value.ErrorMessage, Severity.Error);
+                Dispatcher.Dispatch(new ClearErrorAction());
+            }
+        }
+    }
+
+    private void TogglePasswordVisibility()
+    {
+        if (passwordInput == InputType.Password)
+        {
+            passwordInput = InputType.Text;
+            passwordIcon = Icons.Material.Filled.Visibility;
+        }
+        else
+        {
+            passwordInput = InputType.Password;
+            passwordIcon = Icons.Material.Filled.VisibilityOff;
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        if (!isFormValid) return;
+
+        await form.Validate();
+        if (!form.IsValid) return;
+
+        Dispatcher.Dispatch(new LoginAction(loginModel.Email, loginModel.Password));
+    }
+
+    private async Task HandleSocialLogin(string provider)
+    {
+        Snackbar.Add($"Social login with {provider} - Coming soon!", Severity.Info);
+        // TODO: Implement OAuth flow
+    }
+
+    private void FillDemoCredentials()
+    {
+        loginModel.Email = "demo@teamhub.com";
+        loginModel.Password = "Demo2024!";
+        StateHasChanged();
+    }
+
+    public class LoginModel
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+    }
+}
+
+<style>
+    .login-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        position: relative;
+        overflow: hidden;
+        padding: 20px;
+    }
+
+    .login-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        padding: 40px;
+        width: 100%;
+        max-width: 480px;
+        position: relative;
+        z-index: 2;
+    }
+
+    .login-header {
+        text-align: center;
+        margin-bottom: 32px;
+    }
+
+    .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 24px;
+    }
+
+    .login-form {
+        margin-bottom: 24px;
+    }
+
+    .login-options {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+    }
+
+    .social-login {
+        margin: 24px 0;
+    }
+
+    .social-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .login-footer {
+        margin-top: 24px;
+        text-align: center;
+    }
+
+    .demo-credentials {
+        padding: 16px 0;
+    }
+
+    /* Background Animation */
+    .background-animation {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        z-index: 1;
+    }
+
+    .floating-shapes {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+
+    .shape {
+        position: absolute;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 50%;
+        animation: float 6s ease-in-out infinite;
+    }
+
+    .shape-0 {
+        width: 80px;
+        height: 80px;
+        top: 10%;
+        left: 10%;
+        animation-delay: 0s;
+    }
+
+    .shape-1 {
+        width: 120px;
+        height: 120px;
+        top: 20%;
+        right: 10%;
+        animation-delay: 1s;
+    }
+
+    .shape-2 {
+        width: 60px;
+        height: 60px;
+        bottom: 30%;
+        left: 20%;
+        animation-delay: 2s;
+    }
+
+    .shape-3 {
+        width: 100px;
+        height: 100px;
+        bottom: 10%;
+        right: 20%;
+        animation-delay: 3s;
+    }
+
+    .shape-4 {
+        width: 40px;
+        height: 40px;
+        top: 50%;
+        left: 5%;
+        animation-delay: 4s;
+    }
+
+    .shape-5 {
+        width: 90px;
+        height: 90px;
+        top: 70%;
+        right: 5%;
+        animation-delay: 5s;
+    }
+
+    @keyframes float {
+        0%, 100% {
+            transform: translateY(0px) rotate(0deg);
+            opacity: 0.7;
+        }
+        50% {
+            transform: translateY(-20px) rotate(180deg);
+            opacity: 0.3;
+        }
+    }
+
+    /* Responsive Design */
+    @media (max-width: 600px) {
+        .login-container {
+            padding: 10px;
+        }
+        
+        .login-card {
+            padding: 24px;
+            margin: 10px;
+        }
+        
+        .logo {
+            flex-direction: column;
+        }
+        
+        .logo .mud-icon {
+            margin-bottom: 8px;
+        }
+    }
+
+    /* Dark theme support */
+    @media (prefers-color-scheme: dark) {
+        .login-card {
+            background: #1e1e1e;
+            color: white;
+        }
+    }
+</style>

@@ -1,0 +1,15 @@
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/bin/Debug/net8.0/TeamHubConnect.Shared.deps.json
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/bin/Debug/net8.0/TeamHubConnect.Shared.dll
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/bin/Debug/net8.0/TeamHubConnect.Shared.pdb
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/bin/Debug/net8.0/TeamHubConnect.Shared.xml
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.csproj.AssemblyReference.cache
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.GeneratedMSBuildEditorConfig.editorconfig
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.AssemblyInfoInputs.cache
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.AssemblyInfo.cs
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.csproj.CoreCompileInputs.cache
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.sourcelink.json
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.dll
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/refint/TeamHubConnect.Shared.dll
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.xml
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/TeamHubConnect.Shared.pdb
+/workspaces/teamhub-connect/src/TeamHubConnect.Shared/obj/Debug/net8.0/ref/TeamHubConnect.Shared.dll

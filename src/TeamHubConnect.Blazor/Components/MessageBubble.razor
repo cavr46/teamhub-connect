@@ -1,0 +1,935 @@
+@using TeamHubConnect.Blazor.Services
+@inject IJSRuntime JSRuntime
+@inject ISnackbar Snackbar
+
+<div class="message-bubble @GetMessageClasses()" @onmouseenter="OnMouseEnter" @onmouseleave="OnMouseLeave">
+    <!-- Thread Indicator -->
+    @if (Message.IsThreadReply && ShowThreadLine)
+    {
+        <div class="thread-line"></div>
+    }
+
+    <!-- Message Content -->
+    <div class="message-content">
+        <!-- Author Avatar -->
+        <div class="message-avatar">
+            @if (!IsConsecutive)
+            {
+                <MudAvatar Size="Size.Medium" Color="Color.Primary">
+                    @if (!string.IsNullOrEmpty(Message.AuthorAvatarUrl))
+                    {
+                        <MudImage Src="@Message.AuthorAvatarUrl" Alt="@Message.AuthorName" />
+                    }
+                    else
+                    {
+                        @Message.AuthorName.Substring(0, 1)
+                    }
+                </MudAvatar>
+            }
+            else
+            {
+                <div class="timestamp-hover">@GetShortTime(Message.CreatedAt)</div>
+            }
+        </div>
+
+        <!-- Message Body -->
+        <div class="message-body">
+            <!-- Author & Timestamp Header -->
+            @if (!IsConsecutive)
+            {
+                <div class="message-header">
+                    <MudText Typo="Typo.subtitle2" Class="author-name">@Message.AuthorName</MudText>
+                    
+                    @if (Message.IsEdited)
+                    {
+                        <MudChip Size="Size.Small" Color="Color.Secondary" Variant="Variant.Text">edited</MudChip>
+                    }
+                    
+                    @if (Message.Priority != "Normal")
+                    {
+                        <MudChip Size="Size.Small" 
+                                Color="@GetPriorityColor(Message.Priority)" 
+                                Icon="@GetPriorityIcon(Message.Priority)">
+                            @Message.Priority
+                        </MudChip>
+                    }
+                    
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="message-time">
+                        @GetFormattedTime(Message.CreatedAt)
+                    </MudText>
+                </div>
+            }
+
+            <!-- Reply Context -->
+            @if (ReplyToMessage != null)
+            {
+                <div class="reply-context" @onclick="@(() => OnReplyClick?.InvokeAsync(ReplyToMessage))">
+                    <div class="reply-bar"></div>
+                    <div class="reply-content">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            <MudIcon Icon="@Icons.Material.Filled.Reply" Size="Size.Small" />
+                            @ReplyToMessage.AuthorName
+                        </MudText>
+                        <MudText Typo="Typo.body2" Class="reply-text">
+                            @TruncateText(ReplyToMessage.Content, 100)
+                        </MudText>
+                    </div>
+                </div>
+            }
+
+            <!-- Message Content -->
+            <div class="message-text">
+                @if (Message.Type == "Text")
+                {
+                    @if (!string.IsNullOrEmpty(Message.FormattedContent))
+                    {
+                        @((MarkupString)Message.FormattedContent)
+                    }
+                    else
+                    {
+                        @ProcessMessageContent(Message.Content)
+                    }
+                }
+                else if (Message.Type == "Code")
+                {
+                    <MudPaper Class="code-block" Elevation="1">
+                        <pre><code>@Message.Content</code></pre>
+                    </MudPaper>
+                }
+                else if (Message.Type == "System")
+                {
+                    <div class="system-message">
+                        <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" />
+                        <em>@Message.Content</em>
+                    </div>
+                }
+            }
+
+            <!-- Attachments -->
+            @if (Message.Attachments.Any())
+            {
+                <div class="message-attachments">
+                    @foreach (var attachment in Message.Attachments)
+                    {
+                        @if (IsImageAttachment(attachment))
+                        {
+                            <div class="image-attachment" @onclick="@(() => OpenImageModal(attachment))">
+                                <img src="@(attachment.ThumbnailUrl ?? attachment.Url)" 
+                                     alt="@attachment.Filename" 
+                                     loading="lazy" />
+                                <div class="image-overlay">
+                                    <MudIconButton Icon="@Icons.Material.Filled.ZoomIn" 
+                                                  Color="Color.Inherit" 
+                                                  Size="Size.Small" />
+                                </div>
+                            </div>
+                        }
+                        else if (IsVideoAttachment(attachment))
+                        {
+                            <div class="video-attachment">
+                                <video controls preload="metadata">
+                                    <source src="@attachment.Url" type="@attachment.ContentType">
+                                    Your browser does not support the video tag.
+                                </video>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="file-attachment" @onclick="@(() => DownloadFile(attachment))">
+                                <MudIcon Icon="@GetFileIcon(attachment.ContentType)" />
+                                <div class="file-info">
+                                    <MudText Typo="Typo.body2">@attachment.Filename</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @FormatFileSize(attachment.Size)
+                                    </MudText>
+                                </div>
+                                <MudIconButton Icon="@Icons.Material.Filled.Download" 
+                                              Size="Size.Small" />
+                            </div>
+                        }
+                    }
+                </div>
+            }
+
+            <!-- Reactions -->
+            @if (Message.Reactions.Any())
+            {
+                <div class="message-reactions">
+                    @foreach (var reaction in Message.Reactions)
+                    {
+                        <MudChip Text="@($"{reaction.Emoji} {reaction.Count}")"
+                                Size="Size.Small"
+                                Color="@(reaction.UserReacted ? Color.Primary : Color.Default)"
+                                Variant="@(reaction.UserReacted ? Variant.Filled : Variant.Outlined)"
+                                OnClick="@(() => ToggleReaction(reaction.Emoji))"
+                                title="@GetReactionTooltip(reaction)" />
+                    }
+                    
+                    <MudIconButton Icon="@Icons.Material.Filled.AddReaction" 
+                                  Size="Size.Small" 
+                                  OnClick="ShowEmojiPicker" 
+                                  Class="add-reaction-btn" />
+                </div>
+            }
+
+            <!-- Thread Replies -->
+            @if (Message.HasReplies && !IsInThread)
+            {
+                <div class="thread-replies" @onclick="@(() => OnThreadClick?.InvokeAsync(Message))">
+                    <div class="thread-avatars">
+                        @for (int i = 0; i < Math.Min(3, Message.ReplyCount); i++)
+                        {
+                            <MudAvatar Size="Size.Small" Color="Color.Secondary" Class="thread-avatar">
+                                @((char)('A' + i))
+                            </MudAvatar>
+                        }
+                    </div>
+                    <MudText Typo="Typo.body2" Color="Color.Primary" Class="thread-text">
+                        @Message.ReplyCount @(Message.ReplyCount == 1 ? "reply" : "replies")
+                    </MudText>
+                    <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Color="Color.Primary" />
+                </div>
+            }
+        </div>
+
+        <!-- Message Actions -->
+        <div class="message-actions @(ShowActions ? "visible" : "")">
+            <MudIconButton Icon="@Icons.Material.Filled.AddReaction" 
+                          Size="Size.Small" 
+                          OnClick="ShowEmojiPicker"
+                          title="Add reaction" />
+            
+            <MudIconButton Icon="@Icons.Material.Filled.Reply" 
+                          Size="Size.Small" 
+                          OnClick="@(() => OnReplyClick?.InvokeAsync(Message))"
+                          title="Reply in thread" />
+            
+            <MudIconButton Icon="@Icons.Material.Filled.Share" 
+                          Size="Size.Small" 
+                          OnClick="ShareMessage"
+                          title="Share message" />
+
+            @if (CanEdit)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" 
+                              Size="Size.Small" 
+                              OnClick="@(() => OnEditClick?.InvokeAsync(Message))"
+                              title="Edit message" />
+            }
+
+            @if (CanDelete)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                              Size="Size.Small" 
+                              Color="Color.Error"
+                              OnClick="DeleteMessage"
+                              title="Delete message" />
+            }
+
+            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small">
+                <MudMenuItem Icon="@Icons.Material.Filled.Link" OnClick="CopyMessageLink">
+                    Copy Link
+                </MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.ContentCopy" OnClick="CopyMessageText">
+                    Copy Text
+                </MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Bookmark" OnClick="BookmarkMessage">
+                    @(IsBookmarked ? "Remove Bookmark" : "Bookmark")
+                </MudMenuItem>
+                <MudDivider />
+                <MudMenuItem Icon="@Icons.Material.Filled.Flag" OnClick="ReportMessage">
+                    Report Message
+                </MudMenuItem>
+            </MudMenu>
+        </div>
+    </div>
+
+    <!-- Message Status Indicators -->
+    <div class="message-status">
+        @if (Message.IsExpired)
+        {
+            <MudTooltip Text="This message has expired">
+                <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Color="Color.Error" />
+            </MudTooltip>
+        }
+        
+        @if (IsOwnMessage)
+        {
+            <MudTooltip Text="@GetDeliveryStatusText()">
+                <MudIcon Icon="@GetDeliveryStatusIcon()" Size="Size.Small" Color="@GetDeliveryStatusColor()" />
+            </MudTooltip>
+        }
+    </div>
+</div>
+
+<!-- Emoji Picker Modal -->
+<MudDialog @bind-IsVisible="showEmojiPicker" Options="emojiDialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Add Reaction</MudText>
+    </TitleContent>
+    <DialogContent>
+        <EmojiPicker OnEmojiSelected="AddReaction" />
+    </DialogContent>
+</MudDialog>
+
+<!-- Image Modal -->
+<MudDialog @bind-IsVisible="showImageModal" Options="imageDialogOptions">
+    <DialogContent>
+        @if (selectedImage != null)
+        {
+            <div class="image-modal-content">
+                <img src="@selectedImage.Url" alt="@selectedImage.Filename" />
+                <div class="image-modal-info">
+                    <MudText Typo="Typo.h6">@selectedImage.Filename</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        @FormatFileSize(selectedImage.Size)
+                    </MudText>
+                    <MudButton Variant="Variant.Filled" 
+                              Color="Color.Primary" 
+                              StartIcon="@Icons.Material.Filled.Download"
+                              OnClick="@(() => DownloadFile(selectedImage))">
+                        Download
+                    </MudButton>
+                </div>
+            </div>
+        }
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [Parameter] public MessageDto Message { get; set; } = null!;
+    [Parameter] public MessageDto? ReplyToMessage { get; set; }
+    [Parameter] public bool IsConsecutive { get; set; }
+    [Parameter] public bool IsInThread { get; set; }
+    [Parameter] public bool ShowThreadLine { get; set; }
+    [Parameter] public bool IsOwnMessage { get; set; }
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public bool CanDelete { get; set; }
+    [Parameter] public bool IsBookmarked { get; set; }
+
+    [Parameter] public EventCallback<MessageDto> OnReplyClick { get; set; }
+    [Parameter] public EventCallback<MessageDto> OnEditClick { get; set; }
+    [Parameter] public EventCallback<MessageDto> OnThreadClick { get; set; }
+    [Parameter] public EventCallback<string> OnReactionToggle { get; set; }
+
+    private bool ShowActions = false;
+    private bool showEmojiPicker = false;
+    private bool showImageModal = false;
+    private MessageAttachmentDto? selectedImage;
+
+    private readonly DialogOptions emojiDialogOptions = new() 
+    { 
+        MaxWidth = MaxWidth.Small, 
+        FullWidth = true 
+    };
+
+    private readonly DialogOptions imageDialogOptions = new() 
+    { 
+        MaxWidth = MaxWidth.Large, 
+        FullWidth = true,
+        CloseButton = true
+    };
+
+    private void OnMouseEnter() => ShowActions = true;
+    private void OnMouseLeave() => ShowActions = false;
+
+    private string GetMessageClasses()
+    {
+        var classes = new List<string> { "message" };
+        
+        if (IsOwnMessage) classes.Add("own-message");
+        if (IsConsecutive) classes.Add("consecutive");
+        if (IsInThread) classes.Add("in-thread");
+        if (Message.Priority != "Normal") classes.Add($"priority-{Message.Priority.ToLower()}");
+        
+        return string.Join(" ", classes);
+    }
+
+    private Color GetPriorityColor(string priority) => priority switch
+    {
+        "High" => Color.Warning,
+        "Urgent" => Color.Error,
+        "Low" => Color.Info,
+        _ => Color.Default
+    };
+
+    private string GetPriorityIcon(string priority) => priority switch
+    {
+        "High" => Icons.Material.Filled.PriorityHigh,
+        "Urgent" => Icons.Material.Filled.Emergency,
+        "Low" => Icons.Material.Filled.LowPriority,
+        _ => Icons.Material.Filled.Label
+    };
+
+    private string GetFormattedTime(DateTime dateTime)
+    {
+        var now = DateTime.Now;
+        var timeSpan = now - dateTime;
+
+        if (timeSpan.TotalMinutes < 1)
+            return "now";
+        if (timeSpan.TotalHours < 1)
+            return $"{(int)timeSpan.TotalMinutes}m ago";
+        if (timeSpan.TotalDays < 1)
+            return dateTime.ToString("HH:mm");
+        if (timeSpan.TotalDays < 7)
+            return dateTime.ToString("ddd HH:mm");
+        
+        return dateTime.ToString("MMM dd, HH:mm");
+    }
+
+    private string GetShortTime(DateTime dateTime) => dateTime.ToString("HH:mm");
+
+    private MarkupString ProcessMessageContent(string content)
+    {
+        // Basic markdown processing (simplified)
+        content = content
+            .Replace("**", "<strong>", StringComparison.Ordinal)
+            .Replace("**", "</strong>", StringComparison.Ordinal)
+            .Replace("_", "<em>", StringComparison.Ordinal)
+            .Replace("_", "</em>", StringComparison.Ordinal);
+        
+        // Process mentions
+        content = System.Text.RegularExpressions.Regex.Replace(
+            content, 
+            @"@(\w+)", 
+            "<span class=\"mention\">@$1</span>");
+        
+        // Process links
+        content = System.Text.RegularExpressions.Regex.Replace(
+            content,
+            @"(https?://[^\s]+)",
+            "<a href=\"$1\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>");
+
+        return new MarkupString(content);
+    }
+
+    private bool IsImageAttachment(MessageAttachmentDto attachment) =>
+        attachment.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsVideoAttachment(MessageAttachmentDto attachment) =>
+        attachment.ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+
+    private string GetFileIcon(string contentType) => contentType switch
+    {
+        _ when contentType.StartsWith("image/") => Icons.Material.Filled.Image,
+        _ when contentType.StartsWith("video/") => Icons.Material.Filled.VideoFile,
+        _ when contentType.StartsWith("audio/") => Icons.Material.Filled.AudioFile,
+        "application/pdf" => Icons.Material.Filled.PictureAsPdf,
+        _ when contentType.Contains("document") => Icons.Material.Filled.Description,
+        _ when contentType.Contains("spreadsheet") => Icons.Material.Filled.TableChart,
+        _ when contentType.Contains("presentation") => Icons.Material.Filled.Slideshow,
+        _ => Icons.Material.Filled.InsertDriveFile
+    };
+
+    private string FormatFileSize(long bytes)
+    {
+        var units = new[] { "B", "KB", "MB", "GB" };
+        var size = (double)bytes;
+        var unitIndex = 0;
+        
+        while (size >= 1024 && unitIndex < units.Length - 1)
+        {
+            size /= 1024;
+            unitIndex++;
+        }
+        
+        return $"{size:F1} {units[unitIndex]}";
+    }
+
+    private string TruncateText(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength] + "...";
+
+    private string GetReactionTooltip(MessageReactionDto reaction)
+    {
+        if (reaction.Count == 1)
+            return reaction.UserReacted ? "You reacted with " + reaction.Emoji : "1 person reacted with " + reaction.Emoji;
+        
+        var others = reaction.UserReacted ? reaction.Count - 1 : reaction.Count;
+        var youText = reaction.UserReacted ? "You" : "";
+        var othersText = others > 0 ? $"{others} other{(others == 1 ? "" : "s")}" : "";
+        
+        var parts = new[] { youText, othersText }.Where(s => !string.IsNullOrEmpty(s));
+        return $"{string.Join(" and ", parts)} reacted with {reaction.Emoji}";
+    }
+
+    private string GetDeliveryStatusText() => "Delivered"; // TODO: Implement actual status
+    private string GetDeliveryStatusIcon() => Icons.Material.Filled.Done;
+    private Color GetDeliveryStatusColor() => Color.Success;
+
+    // Event handlers
+    private async Task ToggleReaction(string emoji)
+    {
+        await OnReactionToggle.InvokeAsync(emoji);
+    }
+
+    private void ShowEmojiPicker()
+    {
+        showEmojiPicker = true;
+    }
+
+    private async Task AddReaction(string emoji)
+    {
+        showEmojiPicker = false;
+        await ToggleReaction(emoji);
+    }
+
+    private void OpenImageModal(MessageAttachmentDto attachment)
+    {
+        selectedImage = attachment;
+        showImageModal = true;
+    }
+
+    private async Task DownloadFile(MessageAttachmentDto attachment)
+    {
+        await JSRuntime.InvokeVoidAsync("downloadFile", attachment.Url, attachment.Filename);
+    }
+
+    private async Task ShareMessage()
+    {
+        var messageUrl = $"{Navigation.BaseUri}messages/{Message.Id}";
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", messageUrl);
+        Snackbar.Add("Message link copied to clipboard!", Severity.Success);
+    }
+
+    private async Task CopyMessageLink()
+    {
+        var messageUrl = $"{Navigation.BaseUri}messages/{Message.Id}";
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", messageUrl);
+        Snackbar.Add("Message link copied!", Severity.Success);
+    }
+
+    private async Task CopyMessageText()
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", Message.Content);
+        Snackbar.Add("Message text copied!", Severity.Success);
+    }
+
+    private void BookmarkMessage()
+    {
+        // TODO: Implement bookmark functionality
+        Snackbar.Add(IsBookmarked ? "Bookmark removed!" : "Message bookmarked!", Severity.Info);
+    }
+
+    private void ReportMessage()
+    {
+        // TODO: Implement report functionality
+        Snackbar.Add("Message reported", Severity.Info);
+    }
+
+    private void DeleteMessage()
+    {
+        // TODO: Implement delete with confirmation
+        Snackbar.Add("Message deleted", Severity.Info);
+    }
+
+    // Data classes
+    public class MessageDto
+    {
+        public Guid Id { get; set; }
+        public string Content { get; set; } = "";
+        public string? FormattedContent { get; set; }
+        public string Type { get; set; } = "Text";
+        public string AuthorName { get; set; } = "";
+        public string? AuthorAvatarUrl { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public bool IsEdited { get; set; }
+        public string Priority { get; set; } = "Normal";
+        public bool IsExpired { get; set; }
+        public bool IsThreadReply { get; set; }
+        public bool HasReplies { get; set; }
+        public int ReplyCount { get; set; }
+        public List<MessageReactionDto> Reactions { get; set; } = [];
+        public List<MessageAttachmentDto> Attachments { get; set; } = [];
+    }
+
+    public class MessageReactionDto
+    {
+        public string Emoji { get; set; } = "";
+        public int Count { get; set; }
+        public bool UserReacted { get; set; }
+    }
+
+    public class MessageAttachmentDto
+    {
+        public string Filename { get; set; } = "";
+        public string ContentType { get; set; } = "";
+        public long Size { get; set; }
+        public string Url { get; set; } = "";
+        public string? ThumbnailUrl { get; set; }
+    }
+
+    // Placeholder component
+    public class EmojiPicker : ComponentBase
+    {
+        [Parameter] public EventCallback<string> OnEmojiSelected { get; set; }
+    }
+}
+
+<style>
+    .message-bubble {
+        display: flex;
+        gap: 12px;
+        padding: 4px 16px;
+        position: relative;
+        transition: background-color 0.2s ease;
+    }
+
+    .message-bubble:hover {
+        background-color: var(--mud-palette-action-hover);
+    }
+
+    .message-bubble.consecutive {
+        margin-top: -2px;
+    }
+
+    .message-bubble.own-message .message-content {
+        background-color: var(--mud-palette-primary-lighten);
+        border-radius: 18px 18px 4px 18px;
+    }
+
+    .message-bubble.priority-high {
+        border-left: 4px solid var(--mud-palette-warning);
+    }
+
+    .message-bubble.priority-urgent {
+        border-left: 4px solid var(--mud-palette-error);
+        background-color: var(--mud-palette-error-lighten);
+    }
+
+    .thread-line {
+        position: absolute;
+        left: 28px;
+        top: -8px;
+        bottom: 8px;
+        width: 2px;
+        background-color: var(--mud-palette-divider);
+    }
+
+    .message-content {
+        display: flex;
+        gap: 12px;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .message-avatar {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .timestamp-hover {
+        opacity: 0;
+        font-size: 0.75rem;
+        color: var(--mud-palette-text-secondary);
+        transition: opacity 0.2s ease;
+    }
+
+    .message-bubble:hover .timestamp-hover {
+        opacity: 1;
+    }
+
+    .message-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .message-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+        flex-wrap: wrap;
+    }
+
+    .author-name {
+        font-weight: 600;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .message-time {
+        margin-left: auto;
+    }
+
+    .reply-context {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+        padding: 8px;
+        background-color: var(--mud-palette-background-grey);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+
+    .reply-context:hover {
+        background-color: var(--mud-palette-action-hover);
+    }
+
+    .reply-bar {
+        width: 3px;
+        background-color: var(--mud-palette-primary);
+        border-radius: 2px;
+        flex-shrink: 0;
+    }
+
+    .reply-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .reply-text {
+        color: var(--mud-palette-text-secondary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .message-text {
+        line-height: 1.5;
+        word-wrap: break-word;
+    }
+
+    .message-text .mention {
+        background-color: var(--mud-palette-primary-lighten);
+        color: var(--mud-palette-primary);
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .code-block {
+        margin: 8px 0;
+        padding: 12px;
+        border-radius: 8px;
+        background-color: var(--mud-palette-surface-variant);
+    }
+
+    .code-block pre {
+        margin: 0;
+        font-family: 'Courier New', monospace;
+        font-size: 0.875rem;
+        white-space: pre-wrap;
+    }
+
+    .system-message {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--mud-palette-text-secondary);
+        font-style: italic;
+    }
+
+    .message-attachments {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .image-attachment {
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        cursor: pointer;
+        max-width: 300px;
+        max-height: 200px;
+    }
+
+    .image-attachment img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .image-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .image-attachment:hover .image-overlay {
+        opacity: 1;
+    }
+
+    .video-attachment {
+        max-width: 400px;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .video-attachment video {
+        width: 100%;
+        height: auto;
+    }
+
+    .file-attachment {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px;
+        background-color: var(--mud-palette-surface);
+        border: 1px solid var(--mud-palette-divider);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+        max-width: 300px;
+    }
+
+    .file-attachment:hover {
+        background-color: var(--mud-palette-action-hover);
+    }
+
+    .file-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .file-info .mud-typography {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .message-reactions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 8px;
+        align-items: center;
+    }
+
+    .add-reaction-btn {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .message-bubble:hover .add-reaction-btn {
+        opacity: 1;
+    }
+
+    .thread-replies {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        padding: 8px 12px;
+        background-color: var(--mud-palette-background-grey);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+
+    .thread-replies:hover {
+        background-color: var(--mud-palette-action-hover);
+    }
+
+    .thread-avatars {
+        display: flex;
+        margin-left: -4px;
+    }
+
+    .thread-avatar {
+        margin-left: -4px;
+        border: 2px solid white;
+    }
+
+    .thread-text {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .message-actions {
+        position: absolute;
+        top: -16px;
+        right: 16px;
+        background: white;
+        border: 1px solid var(--mud-palette-divider);
+        border-radius: 8px;
+        box-shadow: var(--mud-elevation-4);
+        display: flex;
+        opacity: 0;
+        transform: translateY(4px);
+        transition: all 0.2s ease;
+        z-index: 10;
+    }
+
+    .message-actions.visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .message-status {
+        position: absolute;
+        bottom: 4px;
+        right: 16px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .image-modal-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .image-modal-content img {
+        max-width: 100%;
+        max-height: 70vh;
+        object-fit: contain;
+    }
+
+    .image-modal-info {
+        text-align: center;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .message-bubble {
+            padding: 4px 8px;
+        }
+
+        .message-actions {
+            position: static;
+            margin-top: 8px;
+            opacity: 1;
+            transform: none;
+            border-radius: 4px;
+        }
+
+        .image-attachment, .video-attachment {
+            max-width: 100%;
+        }
+
+        .file-attachment {
+            max-width: 100%;
+        }
+    }
+
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+        .message-actions {
+            background: var(--mud-palette-surface);
+            border-color: var(--mud-palette-divider);
+        }
+
+        .thread-avatar {
+            border-color: var(--mud-palette-surface);
+        }
+    }
+</style>

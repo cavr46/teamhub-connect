@@ -1,0 +1,540 @@
+@page "/register"
+@using TeamHubConnect.Blazor.Store.Auth
+@using Fluxor
+@inherits FluxorComponent
+@inject IState<AuthState> AuthState
+@inject IDispatcher Dispatcher
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<div class="register-container">
+    <div class="register-card">
+        <div class="register-header">
+            <div class="logo">
+                <MudIcon Icon="@Icons.Material.Filled.Forum" Color="Color.Primary" Style="font-size: 2.5rem;" />
+                <MudText Typo="Typo.h4" Color="Color.Primary" Class="ml-3 font-weight-bold">
+                    TeamHub Connect
+                </MudText>
+            </div>
+            <MudText Typo="Typo.h5" Class="mt-4 mb-2 text-center">
+                Create Your Account
+            </MudText>
+            <MudText Typo="Typo.body1" Color="Color.Secondary" Class="text-center mb-4">
+                Join thousands of teams already using TeamHub Connect
+            </MudText>
+        </div>
+
+        <MudStepper @ref="stepper" Color="Color.Primary" Variant="Variant.Filled" Class="mb-6">
+            <!-- Step 1: Basic Information -->
+            <MudStep Title="Basic Info" Icon="@Icons.Material.Filled.Person">
+                <ChildContent>
+                    <MudForm @ref="step1Form" @bind-IsValid="@isStep1Valid">
+                        <MudGrid>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="registerModel.FirstName"
+                                             Label="First Name"
+                                             Variant="Variant.Outlined"
+                                             Required="true"
+                                             RequiredError="First name is required"
+                                             FullWidth="true"
+                                             Margin="Margin.Normal" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="registerModel.LastName"
+                                             Label="Last Name"
+                                             Variant="Variant.Outlined"
+                                             Required="true"
+                                             RequiredError="Last name is required"
+                                             FullWidth="true"
+                                             Margin="Margin.Normal" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudTextField @bind-Value="registerModel.DisplayName"
+                                             Label="Display Name"
+                                             Variant="Variant.Outlined"
+                                             Required="true"
+                                             RequiredError="Display name is required"
+                                             HelperText="This is how others will see you"
+                                             FullWidth="true"
+                                             Margin="Margin.Normal" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudTextField @bind-Value="registerModel.Username"
+                                             Label="Username"
+                                             Variant="Variant.Outlined"
+                                             Required="true"
+                                             RequiredError="Username is required"
+                                             HelperText="Unique username for @mentions"
+                                             FullWidth="true"
+                                             Margin="Margin.Normal"
+                                             Adornment="Adornment.Start"
+                                             AdornmentText="@" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudForm>
+                </ChildContent>
+            </MudStep>
+
+            <!-- Step 2: Account Details -->
+            <MudStep Title="Account" Icon="@Icons.Material.Filled.Email">
+                <ChildContent>
+                    <MudForm @ref="step2Form" @bind-IsValid="@isStep2Valid">
+                        <MudTextField @bind-Value="registerModel.Email"
+                                     Label="Email Address"
+                                     Variant="Variant.Outlined"
+                                     Required="true"
+                                     RequiredError="Email is required"
+                                     Validation="@(new EmailAddressAttribute())"
+                                     FullWidth="true"
+                                     Margin="Margin.Normal"
+                                     Adornment="Adornment.Start"
+                                     AdornmentIcon="@Icons.Material.Filled.Email" />
+
+                        <MudTextField @bind-Value="registerModel.Password"
+                                     Label="Password"
+                                     Variant="Variant.Outlined"
+                                     InputType="@passwordInput"
+                                     Required="true"
+                                     RequiredError="Password is required"
+                                     FullWidth="true"
+                                     Margin="Margin.Normal"
+                                     HelperText="At least 8 characters with uppercase, lowercase, number and symbol"
+                                     Adornment="Adornment.End"
+                                     AdornmentIcon="@passwordIcon"
+                                     OnAdornmentClick="TogglePasswordVisibility" />
+
+                        <MudTextField @bind-Value="registerModel.ConfirmPassword"
+                                     Label="Confirm Password"
+                                     Variant="Variant.Outlined"
+                                     InputType="@confirmPasswordInput"
+                                     Required="true"
+                                     RequiredError="Please confirm your password"
+                                     FullWidth="true"
+                                     Margin="Margin.Normal"
+                                     Adornment="Adornment.End"
+                                     AdornmentIcon="@confirmPasswordIcon"
+                                     OnAdornmentClick="ToggleConfirmPasswordVisibility" />
+
+                        <!-- Password Strength Indicator -->
+                        <div class="password-strength mt-2">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Password Strength:</MudText>
+                            <MudLinearProgress Value="@passwordStrength" 
+                                             Color="@passwordStrengthColor" 
+                                             Class="mt-1" />
+                            <MudText Typo="Typo.caption" Color="@passwordStrengthColor">
+                                @passwordStrengthText
+                            </MudText>
+                        </div>
+                    </MudForm>
+                </ChildContent>
+            </MudStep>
+
+            <!-- Step 3: Workspace Setup -->
+            <MudStep Title="Workspace" Icon="@Icons.Material.Filled.Business">
+                <ChildContent>
+                    <MudForm @ref="step3Form" @bind-IsValid="@isStep3Valid">
+                        <MudRadioGroup @bind-SelectedOption="workspaceOption" T="string">
+                            <MudRadio Option="@("create")" Color="Color.Primary">
+                                Create a new workspace
+                            </MudRadio>
+                            <MudRadio Option="@("join")" Color="Color.Primary">
+                                Join an existing workspace
+                            </MudRadio>
+                        </MudRadioGroup>
+
+                        @if (workspaceOption == "create")
+                        {
+                            <MudTextField @bind-Value="registerModel.WorkspaceName"
+                                         Label="Workspace Name"
+                                         Variant="Variant.Outlined"
+                                         Required="true"
+                                         RequiredError="Workspace name is required"
+                                         HelperText="Your company or team name"
+                                         FullWidth="true"
+                                         Margin="Margin.Normal"
+                                         Class="mt-4" />
+
+                            <MudTextField @bind-Value="registerModel.WorkspaceSlug"
+                                         Label="Workspace URL"
+                                         Variant="Variant.Outlined"
+                                         Required="true"
+                                         RequiredError="Workspace URL is required"
+                                         HelperText="This will be your workspace address"
+                                         FullWidth="true"
+                                         Margin="Margin.Normal"
+                                         Adornment="Adornment.Start"
+                                         AdornmentText="teamhub.com/" />
+                        }
+                        else
+                        {
+                            <MudTextField @bind-Value="registerModel.InviteCode"
+                                         Label="Invite Code"
+                                         Variant="Variant.Outlined"
+                                         Required="true"
+                                         RequiredError="Invite code is required"
+                                         HelperText="Enter the invite code sent to you"
+                                         FullWidth="true"
+                                         Margin="Margin.Normal"
+                                         Class="mt-4" />
+                        }
+                    </MudForm>
+                </ChildContent>
+            </MudStep>
+
+            <!-- Step 4: Terms & Completion -->
+            <MudStep Title="Complete" Icon="@Icons.Material.Filled.CheckCircle">
+                <ChildContent>
+                    <div class="completion-step">
+                        <MudText Typo="Typo.h6" Class="mb-4">Almost there!</MudText>
+                        
+                        <MudCheckBox @bind-Checked="registerModel.AcceptTerms" 
+                                    Color="Color.Primary" 
+                                    Required="true">
+                            I agree to the 
+                            <MudLink Href="/terms" Target="_blank" Color="Color.Primary">Terms of Service</MudLink>
+                            and 
+                            <MudLink Href="/privacy" Target="_blank" Color="Color.Primary">Privacy Policy</MudLink>
+                        </MudCheckBox>
+
+                        <MudCheckBox @bind-Checked="registerModel.AcceptMarketing" 
+                                    Color="Color.Primary"
+                                    Class="mt-2">
+                            I'd like to receive product updates and tips (optional)
+                        </MudCheckBox>
+
+                        <MudAlert Severity="Severity.Info" Class="mt-4">
+                            <strong>What happens next:</strong><br/>
+                            1. We'll create your account<br/>
+                            2. Send a verification email<br/>
+                            3. Set up your workspace<br/>
+                            4. You're ready to collaborate!
+                        </MudAlert>
+                    </div>
+                </ChildContent>
+            </MudStep>
+        </MudStepper>
+
+        <!-- Navigation Buttons -->
+        <div class="step-navigation">
+            <MudButton Variant="Variant.Text" 
+                      OnClick="PreviousStep"
+                      Disabled="@(currentStep == 0)"
+                      StartIcon="@Icons.Material.Filled.ArrowBack">
+                Back
+            </MudButton>
+
+            @if (currentStep < 3)
+            {
+                <MudButton Variant="Variant.Filled" 
+                          Color="Color.Primary"
+                          OnClick="NextStep"
+                          Disabled="@(!CanProceedToNextStep())"
+                          EndIcon="@Icons.Material.Filled.ArrowForward">
+                    Next
+                </MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Filled" 
+                          Color="Color.Primary"
+                          OnClick="CompleteRegistration"
+                          Disabled="@(!registerModel.AcceptTerms || AuthState.Value.IsLoading)"
+                          StartIcon="@Icons.Material.Filled.AccountCircle">
+                    @if (AuthState.Value.IsLoading)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                        <span class="ml-2">Creating Account...</span>
+                    }
+                    else
+                    {
+                        <span>Create Account</span>
+                    }
+                </MudButton>
+            }
+        </div>
+
+        <MudDivider Class="my-6" />
+
+        <!-- Alternative Registration -->
+        <div class="alternative-signup">
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="text-center mb-4">
+                Or sign up with
+            </MudText>
+            
+            <div class="social-buttons">
+                <MudButton Variant="Variant.Outlined"
+                          StartIcon="@Icons.Custom.Brands.Google"
+                          FullWidth="true"
+                          Class="mb-2"
+                          OnClick="@(() => HandleSocialSignup("Google"))">
+                    Sign up with Google
+                </MudButton>
+                
+                <MudButton Variant="Variant.Outlined"
+                          StartIcon="@Icons.Custom.Brands.Microsoft"
+                          FullWidth="true"
+                          OnClick="@(() => HandleSocialSignup("Microsoft"))">
+                    Sign up with Microsoft
+                </MudButton>
+            </div>
+        </div>
+
+        <div class="register-footer">
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="text-center">
+                Already have an account? 
+                <MudLink Href="/login" Color="Color.Primary">Sign in</MudLink>
+            </MudText>
+        </div>
+    </div>
+</div>
+
+@code {
+    private MudStepper stepper = null!;
+    private MudForm step1Form = null!, step2Form = null!, step3Form = null!;
+    private bool isStep1Valid, isStep2Valid, isStep3Valid;
+    private int currentStep = 0;
+    private string workspaceOption = "create";
+
+    // Password visibility
+    private InputType passwordInput = InputType.Password;
+    private InputType confirmPasswordInput = InputType.Password;
+    private string passwordIcon = Icons.Material.Filled.VisibilityOff;
+    private string confirmPasswordIcon = Icons.Material.Filled.VisibilityOff;
+
+    // Password strength
+    private double passwordStrength = 0;
+    private Color passwordStrengthColor = Color.Error;
+    private string passwordStrengthText = "Weak";
+
+    private RegisterModel registerModel = new();
+
+    protected override void OnInitialized()
+    {
+        if (AuthState.Value.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private void TogglePasswordVisibility()
+    {
+        if (passwordInput == InputType.Password)
+        {
+            passwordInput = InputType.Text;
+            passwordIcon = Icons.Material.Filled.Visibility;
+        }
+        else
+        {
+            passwordInput = InputType.Password;
+            passwordIcon = Icons.Material.Filled.VisibilityOff;
+        }
+    }
+
+    private void ToggleConfirmPasswordVisibility()
+    {
+        if (confirmPasswordInput == InputType.Password)
+        {
+            confirmPasswordInput = InputType.Text;
+            confirmPasswordIcon = Icons.Material.Filled.Visibility;
+        }
+        else
+        {
+            confirmPasswordInput = InputType.Password;
+            confirmPasswordIcon = Icons.Material.Filled.VisibilityOff;
+        }
+    }
+
+    private void UpdatePasswordStrength()
+    {
+        var password = registerModel.Password ?? "";
+        var score = 0;
+
+        if (password.Length >= 8) score++;
+        if (password.Any(char.IsUpper)) score++;
+        if (password.Any(char.IsLower)) score++;
+        if (password.Any(char.IsDigit)) score++;
+        if (password.Any(c => "!@#$%^&*()".Contains(c))) score++;
+
+        passwordStrength = score * 20;
+        
+        (passwordStrengthColor, passwordStrengthText) = score switch
+        {
+            0 or 1 => (Color.Error, "Very Weak"),
+            2 => (Color.Warning, "Weak"),
+            3 => (Color.Info, "Fair"),
+            4 => (Color.Success, "Good"),
+            5 => (Color.Primary, "Strong"),
+            _ => (Color.Error, "Weak")
+        };
+    }
+
+    private bool CanProceedToNextStep()
+    {
+        return currentStep switch
+        {
+            0 => isStep1Valid,
+            1 => isStep2Valid && registerModel.Password == registerModel.ConfirmPassword,
+            2 => isStep3Valid,
+            _ => true
+        };
+    }
+
+    private async Task NextStep()
+    {
+        if (CanProceedToNextStep())
+        {
+            currentStep++;
+            await stepper.SetActiveStepByIndex(currentStep);
+        }
+    }
+
+    private async Task PreviousStep()
+    {
+        if (currentStep > 0)
+        {
+            currentStep--;
+            await stepper.SetActiveStepByIndex(currentStep);
+        }
+    }
+
+    private async Task CompleteRegistration()
+    {
+        if (!registerModel.AcceptTerms)
+        {
+            Snackbar.Add("Please accept the terms of service", Severity.Warning);
+            return;
+        }
+
+        // Dispatch registration action
+        var action = new RegisterAction(
+            registerModel.Username,
+            registerModel.Email,
+            registerModel.Password,
+            registerModel.DisplayName,
+            registerModel.FirstName,
+            registerModel.LastName,
+            registerModel.WorkspaceName,
+            registerModel.WorkspaceSlug
+        );
+
+        Dispatcher.Dispatch(action);
+    }
+
+    private async Task HandleSocialSignup(string provider)
+    {
+        Snackbar.Add($"Social signup with {provider} - Coming soon!", Severity.Info);
+        // TODO: Implement OAuth flow
+    }
+
+    public class RegisterModel
+    {
+        public string FirstName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string Username { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+        public string WorkspaceName { get; set; } = "";
+        public string WorkspaceSlug { get; set; } = "";
+        public string InviteCode { get; set; } = "";
+        public bool AcceptTerms { get; set; }
+        public bool AcceptMarketing { get; set; }
+    }
+
+    public record RegisterAction(
+        string Username,
+        string Email, 
+        string Password,
+        string DisplayName,
+        string? FirstName = null,
+        string? LastName = null,
+        string? WorkspaceName = null,
+        string? WorkspaceSlug = null);
+}
+
+<style>
+    .register-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+    }
+
+    .register-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        padding: 40px;
+        width: 100%;
+        max-width: 700px;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .register-header {
+        text-align: center;
+        margin-bottom: 32px;
+    }
+
+    .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 16px;
+    }
+
+    .step-navigation {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 24px;
+    }
+
+    .password-strength {
+        margin-top: 8px;
+    }
+
+    .completion-step {
+        text-align: center;
+        padding: 20px 0;
+    }
+
+    .alternative-signup {
+        margin: 24px 0;
+    }
+
+    .social-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .register-footer {
+        margin-top: 24px;
+        text-align: center;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .register-container {
+            padding: 10px;
+        }
+        
+        .register-card {
+            padding: 24px;
+            max-height: 95vh;
+        }
+        
+        .logo {
+            flex-direction: column;
+        }
+        
+        .step-navigation {
+            flex-direction: column;
+            gap: 12px;
+        }
+    }
+</style>

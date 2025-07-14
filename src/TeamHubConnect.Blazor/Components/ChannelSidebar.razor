@@ -1,0 +1,142 @@
+@using TeamHubConnect.Blazor.Store.Channel
+@using Fluxor
+@inherits FluxorComponent
+@inject IState<ChannelState> ChannelState
+@inject IDispatcher Dispatcher
+
+<div class="channel-sidebar pa-3" style="height: 100vh; overflow-y: auto;">
+    <!-- Workspace Info -->
+    <div class="workspace-info mb-4">
+        <MudText Typo="Typo.h6" Class="font-weight-bold">
+            TeamHub Connect
+        </MudText>
+        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ExpandMore" Class="pa-0">
+            <MudText Typo="Typo.caption">Workspace</MudText>
+        </MudButton>
+    </div>
+
+    <!-- Search -->
+    <MudTextField @bind-Value="searchText" 
+                  Placeholder="Search channels..." 
+                  Variant="Variant.Outlined" 
+                  Margin="Margin.Dense"
+                  Adornment="Adornment.Start" 
+                  AdornmentIcon="@Icons.Material.Filled.Search"
+                  Class="mb-4"
+                  Immediate="true" />
+
+    <!-- Channels Section -->
+    <div class="channels-section mb-4">
+        <div class="d-flex align-center justify-space-between mb-2">
+            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ExpandMore" Class="pa-1">
+                <MudText Typo="Typo.body2" Class="font-weight-medium">Channels</MudText>
+            </MudButton>
+            <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+        </div>
+        
+        @foreach (var channel in FilteredChannels.Where(c => c.Type == "Public"))
+        {
+            <ChannelItem Channel="@channel" IsSelected="@(channel.Id == ChannelState.Value.CurrentChannelId)" />
+        }
+    </div>
+
+    <!-- Direct Messages Section -->
+    <div class="direct-messages-section mb-4">
+        <div class="d-flex align-center justify-space-between mb-2">
+            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ExpandMore" Class="pa-1">
+                <MudText Typo="Typo.body2" Class="font-weight-medium">Direct Messages</MudText>
+            </MudButton>
+            <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+        </div>
+        
+        @foreach (var dm in FilteredChannels.Where(c => c.Type == "DirectMessage"))
+        {
+            <ChannelItem Channel="@dm" IsSelected="@(dm.Id == ChannelState.Value.CurrentChannelId)" />
+        }
+    </div>
+
+    <!-- Thread Section -->
+    <div class="threads-section mb-4">
+        <div class="d-flex align-center justify-space-between mb-2">
+            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ExpandMore" Class="pa-1">
+                <MudText Typo="Typo.body2" Class="font-weight-medium">Threads</MudText>
+            </MudButton>
+        </div>
+        
+        <div class="pl-4">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                No active threads
+            </MudText>
+        </div>
+    </div>
+
+    <!-- Apps Section -->
+    <div class="apps-section">
+        <div class="d-flex align-center justify-space-between mb-2">
+            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ExpandMore" Class="pa-1">
+                <MudText Typo="Typo.body2" Class="font-weight-medium">Apps</MudText>
+            </MudButton>
+            <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+        </div>
+        
+        <div class="pl-4">
+            <AppItem Icon="@Icons.Material.Filled.IntegrationInstructions" Name="GitHub" />
+            <AppItem Icon="@Icons.Material.Filled.Assignment" Name="Jira" />
+            <AppItem Icon="@Icons.Material.Filled.VideoCall" Name="Zoom" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private string searchText = "";
+
+    private List<ChannelDto> FilteredChannels =>
+        ChannelState.Value.Channels
+            .Where(c => string.IsNullOrEmpty(searchText) || 
+                       c.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+}
+
+@code {
+    public class ChannelDto
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "";
+        public bool HasUnread { get; set; }
+        public int UnreadCount { get; set; }
+        public bool IsMuted { get; set; }
+        public DateTime? LastActivity { get; set; }
+    }
+}
+
+<style>
+    .channel-sidebar {
+        border-right: 1px solid var(--mud-palette-divider);
+    }
+
+    .channel-item {
+        border-radius: 6px;
+        margin-bottom: 2px;
+        transition: background-color 0.2s ease;
+    }
+
+    .channel-item:hover {
+        background-color: var(--mud-palette-action-hover);
+    }
+
+    .channel-item.selected {
+        background-color: var(--mud-palette-primary);
+        color: white;
+    }
+
+    .unread-badge {
+        background-color: var(--mud-palette-error);
+        color: white;
+        border-radius: 12px;
+        padding: 2px 6px;
+        font-size: 0.75rem;
+        min-width: 18px;
+        text-align: center;
+    }
+</style>

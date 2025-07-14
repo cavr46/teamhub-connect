@@ -1,0 +1,417 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<div class="video-call-container">
+    @if (IsCallActive)
+    {
+        <div class="video-grid">
+            <!-- Local Video -->
+            <div class="video-participant local-video">
+                <video @ref="localVideoRef" id="localVideo" autoplay muted playsinline></video>
+                <div class="participant-info">
+                    <MudText Typo="Typo.caption">You (muted)</MudText>
+                </div>
+            </div>
+
+            <!-- Remote Videos -->
+            @foreach (var participant in Participants)
+            {
+                <div class="video-participant remote-video">
+                    <video id="remoteVideo_@participant.Id" autoplay playsinline></video>
+                    <div class="participant-info">
+                        <MudText Typo="Typo.caption">@participant.Name</MudText>
+                        @if (participant.IsMuted)
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.MicOff" Size="Size.Small" />
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Controls -->
+        <div class="call-controls">
+            <MudButtonGroup Variant="Variant.Filled" Size="Size.Large">
+                <MudButton Color="@(IsMuted ? Color.Error : Color.Primary)" 
+                          StartIcon="@(IsMuted ? Icons.Material.Filled.MicOff : Icons.Material.Filled.Mic)"
+                          OnClick="ToggleMute">
+                    @(IsMuted ? "Unmute" : "Mute")
+                </MudButton>
+
+                <MudButton Color="@(IsVideoOff ? Color.Error : Color.Primary)"
+                          StartIcon="@(IsVideoOff ? Icons.Material.Filled.VideocamOff : Icons.Material.Filled.Videocam)"
+                          OnClick="ToggleVideo">
+                    @(IsVideoOff ? "Turn On Video" : "Turn Off Video")
+                </MudButton>
+
+                <MudButton Color="@(IsScreenSharing ? Color.Secondary : Color.Primary)"
+                          StartIcon="@(IsScreenSharing ? Icons.Material.Filled.StopScreenShare : Icons.Material.Filled.ScreenShare)"
+                          OnClick="ToggleScreenShare">
+                    @(IsScreenSharing ? "Stop Sharing" : "Share Screen")
+                </MudButton>
+
+                <MudButton Color="Color.Error"
+                          StartIcon="@Icons.Material.Filled.CallEnd"
+                          OnClick="EndCall">
+                    End Call
+                </MudButton>
+            </MudButtonGroup>
+
+            <!-- Additional Controls -->
+            <div class="additional-controls">
+                <MudIconButton Icon="@Icons.Material.Filled.Settings" OnClick="@(() => ShowSettings = true)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Chat" OnClick="@(() => ShowChat = !ShowChat)" />
+                <MudIconButton Icon="@Icons.Material.Filled.People" OnClick="@(() => ShowParticipants = !ShowParticipants)" />
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Pre-call UI -->
+        <div class="pre-call-container">
+            <MudPaper Class="pa-6" Elevation="4">
+                <div class="d-flex flex-column align-center">
+                    <MudIcon Icon="@Icons.Material.Filled.VideoCall" Size="Size.Large" Color="Color.Primary" Style="font-size: 4rem;" />
+                    <MudText Typo="Typo.h4" Class="mt-4 mb-2">Join Video Call</MudText>
+                    <MudText Typo="Typo.body1" Class="mb-4" Color="Color.Secondary">
+                        Ready to join the call with @ChannelName?
+                    </MudText>
+
+                    <!-- Preview -->
+                    <div class="video-preview mb-4">
+                        <video @ref="previewVideoRef" id="previewVideo" autoplay muted playsinline></video>
+                    </div>
+
+                    <!-- Pre-call Controls -->
+                    <div class="pre-call-controls mb-4">
+                        <MudButton Variant="Variant.Outlined" 
+                                  StartIcon="@(IsMuted ? Icons.Material.Filled.MicOff : Icons.Material.Filled.Mic)"
+                                  OnClick="ToggleMute">
+                            @(IsMuted ? "Unmute" : "Mute")
+                        </MudButton>
+                        
+                        <MudButton Variant="Variant.Outlined" 
+                                  StartIcon="@(IsVideoOff ? Icons.Material.Filled.VideocamOff : Icons.Material.Filled.Videocam)"
+                                  OnClick="ToggleVideo" Class="ml-2">
+                            @(IsVideoOff ? "Turn On Video" : "Turn Off Video")
+                        </MudButton>
+                    </div>
+
+                    <MudButton Variant="Variant.Filled" 
+                              Color="Color.Primary" 
+                              Size="Size.Large"
+                              StartIcon="@Icons.Material.Filled.VideoCall"
+                              OnClick="JoinCall">
+                        Join Call
+                    </MudButton>
+                </div>
+            </MudPaper>
+        </div>
+    }
+
+    <!-- Side Panel: Chat -->
+    @if (ShowChat && IsCallActive)
+    {
+        <div class="call-chat-panel">
+            <MudPaper Class="pa-3" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-3">Chat</MudText>
+                <div class="chat-messages" style="height: calc(100% - 100px); overflow-y: auto;">
+                    @foreach (var message in ChatMessages)
+                    {
+                        <div class="chat-message mb-2">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@message.Author</MudText>
+                            <MudText Typo="Typo.body2">@message.Content</MudText>
+                        </div>
+                    }
+                </div>
+                <MudTextField @bind-Value="newChatMessage" 
+                             Placeholder="Type a message..." 
+                             @onkeypress="@(async (e) => { if (e.Key == "Enter") await SendChatMessage(); })"
+                             Adornment="Adornment.End"
+                             AdornmentIcon="@Icons.Material.Filled.Send"
+                             OnAdornmentClick="SendChatMessage" />
+            </MudPaper>
+        </div>
+    }
+
+    <!-- Side Panel: Participants -->
+    @if (ShowParticipants && IsCallActive)
+    {
+        <div class="participants-panel">
+            <MudPaper Class="pa-3" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-3">Participants (@(Participants.Count + 1))</MudText>
+                <MudList>
+                    <MudListItem>
+                        <div class="d-flex align-center">
+                            <MudAvatar Size="Size.Small" Color="Color.Primary">You</MudAvatar>
+                            <MudText Class="ml-3">You</MudText>
+                            @if (IsMuted)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.MicOff" Size="Size.Small" Class="ml-auto" />
+                            }
+                        </div>
+                    </MudListItem>
+                    @foreach (var participant in Participants)
+                    {
+                        <MudListItem>
+                            <div class="d-flex align-center">
+                                <MudAvatar Size="Size.Small" Color="Color.Secondary">@participant.Name.Substring(0, 1)</MudAvatar>
+                                <MudText Class="ml-3">@participant.Name</MudText>
+                                @if (participant.IsMuted)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.MicOff" Size="Size.Small" Class="ml-auto" />
+                                }
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ChannelName { get; set; } = "";
+    [Parameter] public Guid ChannelId { get; set; }
+    [Parameter] public EventCallback OnCallEnded { get; set; }
+
+    private ElementReference localVideoRef;
+    private ElementReference previewVideoRef;
+    private IJSObjectReference? jsModule;
+
+    private bool IsCallActive = false;
+    private bool IsMuted = false;
+    private bool IsVideoOff = false;
+    private bool IsScreenSharing = false;
+    private bool ShowChat = false;
+    private bool ShowParticipants = false;
+    private bool ShowSettings = false;
+
+    private List<CallParticipant> Participants = new();
+    private List<ChatMessage> ChatMessages = new();
+    private string newChatMessage = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/video-call.js");
+            await InitializePreview();
+        }
+    }
+
+    private async Task InitializePreview()
+    {
+        if (jsModule != null)
+        {
+            await jsModule.InvokeVoidAsync("initializePreview", previewVideoRef);
+        }
+    }
+
+    private async Task JoinCall()
+    {
+        if (jsModule != null)
+        {
+            IsCallActive = true;
+            await jsModule.InvokeVoidAsync("joinCall", localVideoRef, ChannelId.ToString());
+            StateHasChanged();
+        }
+    }
+
+    private async Task EndCall()
+    {
+        if (jsModule != null)
+        {
+            await jsModule.InvokeVoidAsync("endCall");
+        }
+        
+        IsCallActive = false;
+        await OnCallEnded.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private async Task ToggleMute()
+    {
+        IsMuted = !IsMuted;
+        if (jsModule != null)
+        {
+            await jsModule.InvokeVoidAsync("toggleMute", IsMuted);
+        }
+        StateHasChanged();
+    }
+
+    private async Task ToggleVideo()
+    {
+        IsVideoOff = !IsVideoOff;
+        if (jsModule != null)
+        {
+            await jsModule.InvokeVoidAsync("toggleVideo", IsVideoOff);
+        }
+        StateHasChanged();
+    }
+
+    private async Task ToggleScreenShare()
+    {
+        IsScreenSharing = !IsScreenSharing;
+        if (jsModule != null)
+        {
+            await jsModule.InvokeVoidAsync("toggleScreenShare", IsScreenSharing);
+        }
+        StateHasChanged();
+    }
+
+    private async Task SendChatMessage()
+    {
+        if (!string.IsNullOrWhiteSpace(newChatMessage))
+        {
+            ChatMessages.Add(new ChatMessage
+            {
+                Author = "You",
+                Content = newChatMessage,
+                Timestamp = DateTime.Now
+            });
+            
+            // Send to other participants via SignalR
+            newChatMessage = "";
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (jsModule != null)
+        {
+            await jsModule.InvokeVoidAsync("cleanup");
+            await jsModule.DisposeAsync();
+        }
+    }
+
+    public class CallParticipant
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public bool IsMuted { get; set; }
+        public bool IsVideoOff { get; set; }
+    }
+
+    public class ChatMessage
+    {
+        public string Author { get; set; } = "";
+        public string Content { get; set; } = "";
+        public DateTime Timestamp { get; set; }
+    }
+}
+
+<style>
+    .video-call-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .video-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 10px;
+        padding: 20px;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .video-participant {
+        position: relative;
+        background: #1a1a1a;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .video-participant video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .local-video {
+        max-width: 200px;
+        max-height: 150px;
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        z-index: 10;
+        border: 2px solid #6366f1;
+    }
+
+    .participant-info {
+        position: absolute;
+        bottom: 8px;
+        left: 8px;
+        color: white;
+        background: rgba(0,0,0,0.7);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+
+    .call-controls {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        background: rgba(0,0,0,0.8);
+        gap: 20px;
+    }
+
+    .pre-call-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .video-preview {
+        width: 320px;
+        height: 240px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #1a1a1a;
+    }
+
+    .video-preview video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .call-chat-panel {
+        position: fixed;
+        right: 0;
+        top: 0;
+        width: 300px;
+        height: 100vh;
+        background: white;
+        z-index: 1001;
+    }
+
+    .participants-panel {
+        position: fixed;
+        right: 0;
+        top: 0;
+        width: 250px;
+        height: 100vh;
+        background: white;
+        z-index: 1001;
+    }
+
+    .additional-controls {
+        display: flex;
+        gap: 10px;
+    }
+</style>

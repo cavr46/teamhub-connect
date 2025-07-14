@@ -1,0 +1,170 @@
+@using TeamHubConnect.Blazor.Store.Channel
+@inject IDispatcher Dispatcher
+
+<div class="channel-item pa-2 @(IsSelected ? "selected" : "")" 
+     style="cursor: pointer; border-radius: 6px; margin-bottom: 2px;"
+     @onclick="SelectChannel">
+    
+    <div class="d-flex align-center">
+        <!-- Channel Icon -->
+        <div class="channel-icon mr-3">
+            @if (Channel.Type == "Public")
+            {
+                <MudIcon Icon="@Icons.Material.Filled.Tag" Size="Size.Small" />
+            }
+            else if (Channel.Type == "Private")
+            {
+                <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" />
+            }
+            else if (Channel.Type == "DirectMessage")
+            {
+                <div class="d-flex align-center">
+                    <MudAvatar Size="Size.Small" Color="Color.Secondary">
+                        <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" />
+                    </MudAvatar>
+                    <div class="status-indicator online ml-1"></div>
+                </div>
+            }
+            else
+            {
+                <MudIcon Icon="@Icons.Material.Filled.Group" Size="Size.Small" />
+            }
+        </div>
+
+        <!-- Channel Name -->
+        <div class="channel-name flex-grow-1">
+            <MudText Typo="Typo.body2" Class="@(IsSelected ? "text-white" : "")" Style="font-weight: 500;">
+                @Channel.Name
+            </MudText>
+            @if (Channel.LastActivity.HasValue)
+            {
+                <MudText Typo="Typo.caption" Class="@(IsSelected ? "text-white" : "text-secondary")" Style="opacity: 0.7;">
+                    @GetRelativeTime(Channel.LastActivity.Value)
+                </MudText>
+            }
+        </div>
+
+        <!-- Notifications & Actions -->
+        <div class="channel-actions d-flex align-center">
+            @if (Channel.HasUnread)
+            {
+                <div class="unread-badge mr-2">
+                    @Channel.UnreadCount
+                </div>
+            }
+            
+            @if (Channel.IsMuted)
+            {
+                <MudIcon Icon="@Icons.Material.Filled.VolumeOff" Size="Size.Small" Style="opacity: 0.6;" />
+            }
+            
+            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true">
+                <MudMenuItem Icon="@Icons.Material.Filled.Info">
+                    Channel Info
+                </MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Notifications">
+                    @(Channel.IsMuted ? "Unmute" : "Mute") Channel
+                </MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Archive">
+                    Archive Channel
+                </MudMenuItem>
+                <MudDivider />
+                <MudMenuItem Icon="@Icons.Material.Filled.Delete" IconColor="Color.Error">
+                    Leave Channel
+                </MudMenuItem>
+            </MudMenu>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public ChannelDto Channel { get; set; } = new();
+    [Parameter] public bool IsSelected { get; set; }
+
+    private void SelectChannel()
+    {
+        Dispatcher.Dispatch(new SelectChannelAction(Channel.Id));
+    }
+
+    private string GetRelativeTime(DateTime dateTime)
+    {
+        var timeSpan = DateTime.Now - dateTime;
+        
+        if (timeSpan.TotalMinutes < 1)
+            return "now";
+        if (timeSpan.TotalMinutes < 60)
+            return $"{(int)timeSpan.TotalMinutes}m";
+        if (timeSpan.TotalHours < 24)
+            return $"{(int)timeSpan.TotalHours}h";
+        if (timeSpan.TotalDays < 7)
+            return $"{(int)timeSpan.TotalDays}d";
+        
+        return dateTime.ToString("MMM dd");
+    }
+
+    public class ChannelDto
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "";
+        public bool HasUnread { get; set; }
+        public int UnreadCount { get; set; }
+        public bool IsMuted { get; set; }
+        public DateTime? LastActivity { get; set; }
+    }
+
+    public record SelectChannelAction(Guid ChannelId);
+}
+
+<style>
+    .channel-item {
+        transition: all 0.2s ease;
+    }
+
+    .channel-item:hover {
+        background-color: var(--mud-palette-action-hover);
+    }
+
+    .channel-item.selected {
+        background-color: var(--mud-palette-primary);
+        color: white;
+    }
+
+    .channel-item.selected .mud-icon {
+        color: white;
+    }
+
+    .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        border: 2px solid white;
+    }
+
+    .status-indicator.online {
+        background-color: #10b981;
+    }
+
+    .status-indicator.away {
+        background-color: #f59e0b;
+    }
+
+    .status-indicator.busy {
+        background-color: #ef4444;
+    }
+
+    .status-indicator.offline {
+        background-color: #6b7280;
+    }
+
+    .unread-badge {
+        background-color: var(--mud-palette-error);
+        color: white;
+        border-radius: 12px;
+        padding: 2px 6px;
+        font-size: 0.75rem;
+        min-width: 18px;
+        text-align: center;
+        font-weight: 600;
+    }
+</style>

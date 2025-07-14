@@ -1,0 +1,978 @@
+@using TeamHubConnect.Blazor.Services
+@inject IJSRuntime JSRuntime
+@inject IMessageService MessageService
+@inject IFileService FileService
+@inject ISnackbar Snackbar
+
+<div class="message-composer @(IsFocused ? "focused" : "")">
+    <!-- File Upload Area (when dragging) -->
+    @if (IsDragOver)
+    {
+        <div class="drag-overlay">
+            <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size="Size.Large" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">Drop files to upload</MudText>
+        </div>
+    }
+
+    <!-- Reply Context -->
+    @if (ReplyToMessage != null)
+    {
+        <div class="reply-context">
+            <div class="reply-indicator">
+                <MudIcon Icon="@Icons.Material.Filled.Reply" Size="Size.Small" />
+                <MudText Typo="Typo.caption">Replying to <strong>@ReplyToMessage.AuthorName</strong></MudText>
+            </div>
+            <div class="reply-preview">
+                <MudText Typo="Typo.body2">@TruncateText(ReplyToMessage.Content, 100)</MudText>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                          Size="Size.Small" 
+                          OnClick="ClearReply" />
+        </div>
+    }
+
+    <!-- Edit Context -->
+    @if (EditingMessage != null)
+    {
+        <div class="edit-context">
+            <div class="edit-indicator">
+                <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" />
+                <MudText Typo="Typo.caption">Editing message</MudText>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                          Size="Size.Small" 
+                          OnClick="CancelEdit" />
+        </div>
+    }
+
+    <!-- Main Input Area -->
+    <div class="input-container">
+        <!-- Format Toolbar -->
+        <div class="format-toolbar @(ShowFormatting ? "visible" : "")">
+            <div class="format-group">
+                <MudIconButton Icon="@Icons.Material.Filled.FormatBold" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("**", "**"))"
+                              title="Bold (Ctrl+B)" />
+                <MudIconButton Icon="@Icons.Material.Filled.FormatItalic" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("_", "_"))"
+                              title="Italic (Ctrl+I)" />
+                <MudIconButton Icon="@Icons.Material.Filled.FormatStrikethrough" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("~~", "~~"))"
+                              title="Strikethrough" />
+                <MudIconButton Icon="@Icons.Material.Filled.Code" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("`", "`"))"
+                              title="Inline Code" />
+            </div>
+            <div class="format-group">
+                <MudIconButton Icon="@Icons.Material.Filled.FormatListBulleted" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("- ", ""))"
+                              title="Bullet List" />
+                <MudIconButton Icon="@Icons.Material.Filled.FormatListNumbered" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("1. ", ""))"
+                              title="Numbered List" />
+                <MudIconButton Icon="@Icons.Material.Filled.FormatQuote" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("> ", ""))"
+                              title="Quote" />
+            </div>
+            <div class="format-group">
+                <MudIconButton Icon="@Icons.Material.Filled.Link" 
+                              Size="Size.Small" 
+                              OnClick="InsertLink"
+                              title="Insert Link" />
+                <MudIconButton Icon="@Icons.Material.Filled.AlternateEmail" 
+                              Size="Size.Small" 
+                              OnClick="@(() => ApplyFormatting("@", ""))"
+                              title="Mention User" />
+            </div>
+        </div>
+
+        <!-- Text Input -->
+        <div class="input-wrapper">
+            <textarea @ref="textareaRef"
+                     @bind="MessageText"
+                     @oninput="OnTextInput"
+                     @onkeydown="OnKeyDown"
+                     @onfocus="OnFocus"
+                     @onblur="OnBlur"
+                     @ondrop="OnFileDrop"
+                     @ondragover="OnDragOver"
+                     @ondragenter="OnDragEnter"
+                     @ondragleave="OnDragLeave"
+                     placeholder="@GetPlaceholder()"
+                     class="message-input"
+                     style="height: @InputHeight"
+                     disabled="@IsLoading"></textarea>
+
+            <!-- Mention Dropdown -->
+            @if (ShowMentionDropdown)
+            {
+                <div class="mention-dropdown" style="top: @MentionDropdownPosition.Top; left: @MentionDropdownPosition.Left;">
+                    @foreach (var user in FilteredUsers.Take(5))
+                    {
+                        <div class="mention-item @(user == SelectedMentionUser ? "selected" : "")"
+                             @onclick="@(() => SelectMention(user))">
+                            <MudAvatar Size="Size.Small" Color="Color.Primary">
+                                @user.DisplayName.Substring(0, 1)
+                            </MudAvatar>
+                            <div class="mention-info">
+                                <MudText Typo="Typo.body2">@user.DisplayName</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@user.Username</MudText>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- Emoji Picker Trigger -->
+            <MudIconButton Icon="@Icons.Material.Filled.EmojiEmotions" 
+                          Size="Size.Small" 
+                          Class="emoji-button"
+                          OnClick="ToggleEmojiPicker" />
+        </div>
+
+        <!-- Attachments Preview -->
+        @if (Attachments.Any())
+        {
+            <div class="attachments-preview">
+                @foreach (var attachment in Attachments)
+                {
+                    <div class="attachment-item">
+                        @if (IsImageFile(attachment.File.ContentType))
+                        {
+                            <div class="image-attachment">
+                                <img src="@attachment.PreviewUrl" alt="@attachment.File.Name" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                                              Size="Size.Small" 
+                                              Class="remove-attachment"
+                                              OnClick="@(() => RemoveAttachment(attachment))" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="file-attachment">
+                                <MudIcon Icon="@GetFileIcon(attachment.File.ContentType)" />
+                                <div class="file-info">
+                                    <MudText Typo="Typo.body2">@attachment.File.Name</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @FormatFileSize(attachment.File.Size)
+                                    </MudText>
+                                </div>
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                                              Size="Size.Small" 
+                                              OnClick="@(() => RemoveAttachment(attachment))" />
+                            </div>
+                        }
+                        
+                        @if (attachment.IsUploading)
+                        {
+                            <div class="upload-progress">
+                                <MudProgressLinear Value="@attachment.Progress" Color="Color.Primary" />
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Action Buttons -->
+        <div class="action-buttons">
+            <!-- File Upload -->
+            <MudFileUpload T="IReadOnlyList<IBrowserFile>" 
+                          @ref="fileUpload"
+                          FilesChanged="OnFilesSelected"
+                          Accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.txt,.zip"
+                          MaximumFileCount="10"
+                          Hidden="true" />
+            
+            <MudIconButton Icon="@Icons.Material.Filled.AttachFile" 
+                          Size="Size.Small" 
+                          OnClick="@(() => fileUpload?.OpenFileDialog())"
+                          title="Attach Files" />
+
+            <MudIconButton Icon="@Icons.Material.Filled.Gif" 
+                          Size="Size.Small" 
+                          OnClick="ToggleGifPicker"
+                          title="Add GIF" />
+
+            <MudIconButton Icon="@Icons.Material.Filled.Schedule" 
+                          Size="Size.Small" 
+                          OnClick="ToggleSchedulePicker"
+                          title="Schedule Message" />
+
+            <!-- Format Toggle -->
+            <MudIconButton Icon="@Icons.Material.Filled.FormatSize" 
+                          Size="Size.Small" 
+                          Color="@(ShowFormatting ? Color.Primary : Color.Default)"
+                          OnClick="ToggleFormatting"
+                          title="Toggle Formatting" />
+
+            <!-- Send Button -->
+            <MudButton Variant="Variant.Filled" 
+                      Color="Color.Primary" 
+                      Size="Size.Small"
+                      StartIcon="@Icons.Material.Filled.Send"
+                      OnClick="SendMessage"
+                      Disabled="@(!CanSend())"
+                      Class="send-button">
+                @if (IsLoading)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                }
+                else
+                {
+                    @(EditingMessage != null ? "Update" : "Send")
+                }
+            </MudButton>
+        </div>
+    </div>
+
+    <!-- Character Count -->
+    @if (MessageText?.Length > 3000)
+    {
+        <div class="character-count">
+            <MudText Typo="Typo.caption" Color="@(MessageText.Length > 4000 ? Color.Error : Color.Warning)">
+                @MessageText.Length / 4000
+            </MudText>
+        </div>
+    }
+
+    <!-- Smart Suggestions -->
+    @if (ShowSuggestions && SmartSuggestions.Any())
+    {
+        <div class="smart-suggestions">
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="suggestions-header">
+                Smart suggestions:
+            </MudText>
+            <div class="suggestions-list">
+                @foreach (var suggestion in SmartSuggestions.Take(3))
+                {
+                    <MudChip Text="@suggestion" 
+                            Size="Size.Small" 
+                            OnClick="@(() => ApplySuggestion(suggestion))" />
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Emoji Picker Modal -->
+<MudDialog @bind-IsVisible="ShowEmojiPicker" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Choose an emoji</MudText>
+    </TitleContent>
+    <DialogContent>
+        <EmojiPicker OnEmojiSelected="InsertEmoji" />
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [Parameter] public Guid ChannelId { get; set; }
+    [Parameter] public MessageDto? ReplyToMessage { get; set; }
+    [Parameter] public MessageDto? EditingMessage { get; set; }
+    [Parameter] public EventCallback<string> OnMessageSent { get; set; }
+    [Parameter] public EventCallback OnReplyCleared { get; set; }
+    [Parameter] public EventCallback OnEditCancelled { get; set; }
+
+    private ElementReference textareaRef;
+    private MudFileUpload<IReadOnlyList<IBrowserFile>>? fileUpload;
+
+    private string MessageText = "";
+    private string InputHeight = "auto";
+    private bool IsFocused = false;
+    private bool IsLoading = false;
+    private bool IsDragOver = false;
+    private bool ShowFormatting = false;
+    private bool ShowEmojiPicker = false;
+    private bool ShowMentionDropdown = false;
+    private bool ShowSuggestions = true;
+
+    private List<AttachmentItem> Attachments = new();
+    private List<UserDto> FilteredUsers = new();
+    private UserDto? SelectedMentionUser;
+    private (string Top, string Left) MentionDropdownPosition = ("0px", "0px");
+    private List<string> SmartSuggestions = new();
+
+    private readonly DialogOptions dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("messageComposer.initialize", textareaRef);
+            
+            if (EditingMessage != null)
+            {
+                MessageText = EditingMessage.Content;
+                await FocusInput();
+            }
+        }
+    }
+
+    private async Task OnTextInput(ChangeEventArgs e)
+    {
+        MessageText = e.Value?.ToString() ?? "";
+        await AdjustTextareaHeight();
+        await CheckForMentions();
+        await LoadSmartSuggestions();
+        
+        // Send typing indicator
+        // await SignalRService.SendTypingIndicator(ChannelId, true);
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        // Handle keyboard shortcuts
+        if (e.CtrlKey || e.MetaKey)
+        {
+            switch (e.Key.ToLower())
+            {
+                case "enter":
+                    await SendMessage();
+                    break;
+                case "b":
+                    await ApplyFormatting("**", "**");
+                    break;
+                case "i":
+                    await ApplyFormatting("_", "_");
+                    break;
+            }
+        }
+        else if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            e.PreventDefault();
+            await SendMessage();
+        }
+        else if (ShowMentionDropdown)
+        {
+            switch (e.Key)
+            {
+                case "ArrowUp":
+                    e.PreventDefault();
+                    NavigateMentions(-1);
+                    break;
+                case "ArrowDown":
+                    e.PreventDefault();
+                    NavigateMentions(1);
+                    break;
+                case "Enter":
+                case "Tab":
+                    e.PreventDefault();
+                    if (SelectedMentionUser != null)
+                        await SelectMention(SelectedMentionUser);
+                    break;
+                case "Escape":
+                    ShowMentionDropdown = false;
+                    break;
+            }
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (!CanSend()) return;
+
+        try
+        {
+            IsLoading = true;
+            
+            // Upload attachments first
+            var attachmentResults = new List<MessageAttachmentDto>();
+            foreach (var attachment in Attachments.Where(a => !a.IsUploaded))
+            {
+                attachment.IsUploading = true;
+                StateHasChanged();
+                
+                // Simulate upload progress
+                for (int i = 0; i <= 100; i += 10)
+                {
+                    attachment.Progress = i;
+                    StateHasChanged();
+                    await Task.Delay(50);
+                }
+                
+                // TODO: Actual file upload
+                attachmentResults.Add(new MessageAttachmentDto
+                {
+                    Filename = attachment.File.Name,
+                    ContentType = attachment.File.ContentType,
+                    Size = attachment.File.Size,
+                    Url = attachment.PreviewUrl ?? ""
+                });
+            }
+
+            // Send message
+            if (EditingMessage != null)
+            {
+                // TODO: Update message
+                await OnEditCancelled.InvokeAsync();
+            }
+            else
+            {
+                // TODO: Send new message
+                await OnMessageSent.InvokeAsync(MessageText);
+            }
+
+            // Clear composer
+            MessageText = "";
+            Attachments.Clear();
+            await ClearReply();
+            await LoadSmartSuggestions();
+            
+            Snackbar.Add("Message sent!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to send message: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+            await FocusInput();
+        }
+    }
+
+    private bool CanSend()
+    {
+        return !IsLoading && 
+               (!string.IsNullOrWhiteSpace(MessageText) || Attachments.Any()) &&
+               MessageText?.Length <= 4000;
+    }
+
+    private async Task ApplyFormatting(string prefix, string suffix)
+    {
+        // TODO: Apply formatting to selected text
+        await JSRuntime.InvokeVoidAsync("messageComposer.applyFormatting", textareaRef, prefix, suffix);
+    }
+
+    private async Task OnFilesSelected(IReadOnlyList<IBrowserFile> files)
+    {
+        foreach (var file in files)
+        {
+            if (file.Size > 50 * 1024 * 1024) // 50MB limit
+            {
+                Snackbar.Add($"File {file.Name} is too large (max 50MB)", Severity.Warning);
+                continue;
+            }
+
+            var attachment = new AttachmentItem
+            {
+                File = file,
+                PreviewUrl = await GeneratePreviewUrl(file)
+            };
+
+            Attachments.Add(attachment);
+        }
+        StateHasChanged();
+    }
+
+    private async Task<string?> GeneratePreviewUrl(IBrowserFile file)
+    {
+        if (IsImageFile(file.ContentType))
+        {
+            // Generate preview URL for images
+            var buffer = new byte[file.Size];
+            await file.OpenReadStream().ReadAsync(buffer);
+            var base64 = Convert.ToBase64String(buffer);
+            return $"data:{file.ContentType};base64,{base64}";
+        }
+        return null;
+    }
+
+    private void RemoveAttachment(AttachmentItem attachment)
+    {
+        Attachments.Remove(attachment);
+        StateHasChanged();
+    }
+
+    private async Task CheckForMentions()
+    {
+        var lastAtIndex = MessageText.LastIndexOf('@');
+        if (lastAtIndex >= 0 && lastAtIndex == MessageText.Length - 1 || 
+            (lastAtIndex >= 0 && MessageText.Length > lastAtIndex + 1 && 
+             !MessageText[(lastAtIndex + 1)..].Contains(' ')))
+        {
+            var searchTerm = MessageText[(lastAtIndex + 1)..];
+            // TODO: Load filtered users based on search term
+            ShowMentionDropdown = true;
+            // await CalculateMentionDropdownPosition();
+        }
+        else
+        {
+            ShowMentionDropdown = false;
+        }
+    }
+
+    private async Task SelectMention(UserDto user)
+    {
+        var lastAtIndex = MessageText.LastIndexOf('@');
+        if (lastAtIndex >= 0)
+        {
+            MessageText = MessageText[..lastAtIndex] + $"@{user.Username} ";
+            ShowMentionDropdown = false;
+            await FocusInput();
+        }
+    }
+
+    private void NavigateMentions(int direction)
+    {
+        if (!FilteredUsers.Any()) return;
+        
+        var currentIndex = SelectedMentionUser != null ? FilteredUsers.IndexOf(SelectedMentionUser) : -1;
+        var newIndex = Math.Max(0, Math.Min(FilteredUsers.Count - 1, currentIndex + direction));
+        SelectedMentionUser = FilteredUsers[newIndex];
+    }
+
+    private async Task LoadSmartSuggestions()
+    {
+        // TODO: Load AI-powered suggestions based on context
+        if (MessageText?.Length > 10)
+        {
+            SmartSuggestions = new List<string>
+            {
+                "Thanks for the update!",
+                "Could you provide more details?",
+                "I'll look into this."
+            };
+        }
+        else
+        {
+            SmartSuggestions.Clear();
+        }
+    }
+
+    private void ApplySuggestion(string suggestion)
+    {
+        MessageText = suggestion;
+        SmartSuggestions.Clear();
+        StateHasChanged();
+    }
+
+    private void InsertEmoji(string emoji)
+    {
+        MessageText += emoji;
+        ShowEmojiPicker = false;
+        StateHasChanged();
+    }
+
+    private async Task FocusInput()
+    {
+        await JSRuntime.InvokeVoidAsync("messageComposer.focus", textareaRef);
+    }
+
+    private async Task AdjustTextareaHeight()
+    {
+        await JSRuntime.InvokeVoidAsync("messageComposer.adjustHeight", textareaRef);
+    }
+
+    // Event handlers
+    private void OnFocus() => IsFocused = true;
+    private void OnBlur() => IsFocused = false;
+    private void OnDragEnter() => IsDragOver = true;
+    private void OnDragLeave() => IsDragOver = false;
+    private void OnDragOver() => IsDragOver = true;
+    private async Task OnFileDrop() 
+    { 
+        IsDragOver = false;
+        // Files will be handled by the file upload component
+    }
+
+    private async Task ClearReply()
+    {
+        await OnReplyCleared.InvokeAsync();
+    }
+
+    private async Task CancelEdit()
+    {
+        MessageText = "";
+        await OnEditCancelled.InvokeAsync();
+    }
+
+    private void ToggleFormatting() => ShowFormatting = !ShowFormatting;
+    private void ToggleEmojiPicker() => ShowEmojiPicker = !ShowEmojiPicker;
+    private void ToggleGifPicker() => Snackbar.Add("GIF picker coming soon!", Severity.Info);
+    private void ToggleSchedulePicker() => Snackbar.Add("Schedule message coming soon!", Severity.Info);
+    private void InsertLink() => Snackbar.Add("Link insertion coming soon!", Severity.Info);
+
+    // Utility methods
+    private string GetPlaceholder()
+    {
+        if (EditingMessage != null) return "Edit your message...";
+        if (ReplyToMessage != null) return $"Reply to {ReplyToMessage.AuthorName}...";
+        return "Type a message...";
+    }
+
+    private bool IsImageFile(string contentType) => 
+        contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+
+    private string GetFileIcon(string contentType) => contentType switch
+    {
+        _ when contentType.StartsWith("image/") => Icons.Material.Filled.Image,
+        _ when contentType.StartsWith("video/") => Icons.Material.Filled.VideoFile,
+        _ when contentType.StartsWith("audio/") => Icons.Material.Filled.AudioFile,
+        "application/pdf" => Icons.Material.Filled.PictureAsPdf,
+        _ when contentType.Contains("document") => Icons.Material.Filled.Description,
+        _ when contentType.Contains("spreadsheet") => Icons.Material.Filled.TableChart,
+        _ when contentType.Contains("presentation") => Icons.Material.Filled.Slideshow,
+        _ => Icons.Material.Filled.InsertDriveFile
+    };
+
+    private string FormatFileSize(long bytes)
+    {
+        var units = new[] { "B", "KB", "MB", "GB" };
+        var size = (double)bytes;
+        var unitIndex = 0;
+        
+        while (size >= 1024 && unitIndex < units.Length - 1)
+        {
+            size /= 1024;
+            unitIndex++;
+        }
+        
+        return $"{size:F1} {units[unitIndex]}";
+    }
+
+    private string TruncateText(string text, int maxLength)
+    {
+        return text.Length <= maxLength ? text : text[..maxLength] + "...";
+    }
+
+    // Data classes
+    public class AttachmentItem
+    {
+        public IBrowserFile File { get; set; } = null!;
+        public string? PreviewUrl { get; set; }
+        public bool IsUploading { get; set; }
+        public bool IsUploaded { get; set; }
+        public double Progress { get; set; }
+    }
+
+    public class UserDto
+    {
+        public Guid Id { get; set; }
+        public string Username { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string? AvatarUrl { get; set; }
+    }
+
+    public class MessageDto
+    {
+        public Guid Id { get; set; }
+        public string Content { get; set; } = "";
+        public string AuthorName { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class MessageAttachmentDto
+    {
+        public string Filename { get; set; } = "";
+        public string ContentType { get; set; } = "";
+        public long Size { get; set; }
+        public string Url { get; set; } = "";
+        public string? ThumbnailUrl { get; set; }
+    }
+
+    // Placeholder component
+    public class EmojiPicker : ComponentBase
+    {
+        [Parameter] public EventCallback<string> OnEmojiSelected { get; set; }
+        
+        // Implementation would include full emoji grid
+    }
+}
+
+<style>
+    .message-composer {
+        position: relative;
+        background: white;
+        border: 2px solid var(--mud-palette-lines-default);
+        border-radius: 12px;
+        transition: all 0.2s ease;
+        margin: 16px;
+    }
+
+    .message-composer.focused {
+        border-color: var(--mud-palette-primary);
+        box-shadow: 0 0 0 3px var(--mud-palette-primary-lighten);
+    }
+
+    .drag-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(99, 102, 241, 0.1);
+        border: 2px dashed var(--mud-palette-primary);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+    }
+
+    .reply-context, .edit-context {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: var(--mud-palette-background-grey);
+        border-bottom: 1px solid var(--mud-palette-lines-default);
+    }
+
+    .reply-indicator, .edit-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .reply-preview {
+        flex: 1;
+        color: var(--mud-palette-text-secondary);
+        font-style: italic;
+    }
+
+    .format-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--mud-palette-lines-default);
+        background: var(--mud-palette-background-grey);
+        opacity: 0;
+        max-height: 0;
+        overflow: hidden;
+        transition: all 0.2s ease;
+    }
+
+    .format-toolbar.visible {
+        opacity: 1;
+        max-height: 60px;
+    }
+
+    .format-group {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-right: 12px;
+        padding-right: 12px;
+        border-right: 1px solid var(--mud-palette-lines-default);
+    }
+
+    .format-group:last-child {
+        border-right: none;
+        margin-right: 0;
+    }
+
+    .input-container {
+        position: relative;
+    }
+
+    .input-wrapper {
+        position: relative;
+        display: flex;
+        align-items: flex-end;
+        padding: 12px 16px;
+    }
+
+    .message-input {
+        flex: 1;
+        border: none;
+        outline: none;
+        resize: none;
+        font-family: inherit;
+        font-size: 14px;
+        line-height: 1.5;
+        background: transparent;
+        min-height: 40px;
+        max-height: 200px;
+        padding-right: 40px;
+    }
+
+    .message-input::placeholder {
+        color: var(--mud-palette-text-disabled);
+    }
+
+    .emoji-button {
+        position: absolute;
+        right: 16px;
+        bottom: 12px;
+    }
+
+    .mention-dropdown {
+        position: absolute;
+        background: white;
+        border: 1px solid var(--mud-palette-lines-default);
+        border-radius: 8px;
+        box-shadow: var(--mud-elevation-8);
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 1000;
+        min-width: 200px;
+    }
+
+    .mention-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+
+    .mention-item:hover, .mention-item.selected {
+        background: var(--mud-palette-action-hover);
+    }
+
+    .mention-info {
+        flex: 1;
+    }
+
+    .attachments-preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 16px 12px;
+    }
+
+    .attachment-item {
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--mud-palette-lines-default);
+    }
+
+    .image-attachment {
+        position: relative;
+        width: 80px;
+        height: 80px;
+    }
+
+    .image-attachment img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .file-attachment {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--mud-palette-background-grey);
+        min-width: 200px;
+    }
+
+    .file-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .file-info .mud-typography {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .remove-attachment {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+    }
+
+    .upload-progress {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+    }
+
+    .action-buttons {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-top: 1px solid var(--mud-palette-lines-default);
+        background: var(--mud-palette-background-grey);
+    }
+
+    .send-button {
+        margin-left: auto;
+    }
+
+    .character-count {
+        position: absolute;
+        bottom: 16px;
+        right: 60px;
+        font-size: 12px;
+    }
+
+    .smart-suggestions {
+        padding: 12px 16px;
+        border-top: 1px solid var(--mud-palette-lines-default);
+        background: var(--mud-palette-background-grey);
+    }
+
+    .suggestions-header {
+        margin-bottom: 8px;
+    }
+
+    .suggestions-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .suggestions-list .mud-chip {
+        cursor: pointer;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .message-composer {
+            margin: 8px;
+            border-radius: 8px;
+        }
+
+        .format-toolbar {
+            flex-wrap: wrap;
+            gap: 2px;
+        }
+
+        .format-group {
+            margin-right: 8px;
+            padding-right: 8px;
+        }
+
+        .action-buttons {
+            flex-wrap: wrap;
+        }
+
+        .file-attachment {
+            min-width: 150px;
+        }
+    }
+
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+        .message-composer {
+            background: var(--mud-palette-surface);
+            border-color: var(--mud-palette-lines-default);
+        }
+
+        .mention-dropdown {
+            background: var(--mud-palette-surface);
+        }
+    }
+</style>

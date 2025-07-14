@@ -1,0 +1,89 @@
+@using TeamHubConnect.Blazor.Store.Auth
+@using TeamHubConnect.Blazor.Store.Workspace
+@using Fluxor
+@inherits FluxorComponent
+@inject IState<AuthState> AuthState
+@inject IState<WorkspaceState> WorkspaceState
+
+<MudThemeProvider @ref="@_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" Theme="_theme" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@if (AuthState.Value.IsAuthenticated)
+{
+    <MudLayout>
+        <!-- Sidebar -->
+        <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2" Variant="DrawerVariant.Persistent">
+            <WorkspaceSidebar />
+        </MudDrawer>
+
+        <!-- Main Content -->
+        <MudMainContent>
+            <MudContainer MaxWidth="MaxWidth.False" Class="pa-0 ma-0" Style="height: 100vh;">
+                <div class="d-flex" style="height: 100vh;">
+                    <!-- Channel Sidebar -->
+                    <div class="channel-sidebar" style="width: 240px; background-color: var(--mud-palette-surface); border-right: 1px solid var(--mud-palette-divider);">
+                        <ChannelSidebar />
+                    </div>
+
+                    <!-- Chat Area -->
+                    <div class="chat-area flex-grow-1 d-flex flex-column">
+                        @Body
+                    </div>
+                </div>
+            </MudContainer>
+        </MudMainContent>
+    </MudLayout>
+}
+else
+{
+    <div class="auth-layout">
+        @Body
+    </div>
+}
+
+@code {
+    private bool _drawerOpen = true;
+    private bool _isDarkMode = false;
+    private MudThemeProvider _mudThemeProvider = null!;
+
+    private readonly MudTheme _theme = new()
+    {
+        Palette = new PaletteLight()
+        {
+            Primary = "#6366f1",
+            Secondary = "#8b5cf6",
+            Tertiary = "#06b6d4",
+            AppbarBackground = "#6366f1",
+            DrawerBackground = "#f8fafc",
+            Surface = "#ffffff",
+            Background = "#f1f5f9"
+        },
+        PaletteDark = new PaletteDark()
+        {
+            Primary = "#818cf8",
+            Secondary = "#a78bfa",
+            Tertiary = "#22d3ee",
+            AppbarBackground = "#1e1b4b",
+            DrawerBackground = "#0f172a",
+            Surface = "#1e293b",
+            Background = "#0f172a"
+        },
+        Typography = new Typography()
+        {
+            Default = new Default()
+            {
+                FontFamily = new[] { "Roboto", "Helvetica", "Arial", "sans-serif" }
+            }
+        }
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isDarkMode = await _mudThemeProvider.GetSystemPreference();
+            StateHasChanged();
+        }
+    }
+}

@@ -1,0 +1,118 @@
+@using TeamHubConnect.Blazor.Store.Workspace
+@using Fluxor
+@inherits FluxorComponent
+@inject IState<WorkspaceState> WorkspaceState
+@inject IDispatcher Dispatcher
+
+<div class="workspace-sidebar pa-2" style="height: 100%; background-color: var(--mud-palette-primary);">
+    <!-- Workspace Header -->
+    <div class="workspace-header mb-4">
+        <MudText Typo="Typo.h6" Class="text-white font-weight-bold">
+            @(WorkspaceState.Value.CurrentWorkspace?.Name ?? "TeamHub Connect")
+        </MudText>
+        <MudText Typo="Typo.caption" Class="text-white" Style="opacity: 0.8;">
+            @(WorkspaceState.Value.CurrentWorkspace?.Members?.Count ?? 0) members
+        </MudText>
+    </div>
+
+    <!-- User Profile -->
+    <MudPaper Class="pa-3 mb-4" Style="background-color: rgba(255,255,255,0.1);">
+        <div class="d-flex align-center">
+            <MudAvatar Color="Color.Secondary" Size="Size.Medium">
+                <MudIcon Icon="@Icons.Material.Filled.Person" />
+            </MudAvatar>
+            <div class="ml-3 flex-grow-1">
+                <MudText Typo="Typo.body2" Class="text-white font-weight-medium">
+                    John Doe
+                </MudText>
+                <div class="d-flex align-center">
+                    <div class="status-dot online mr-2"></div>
+                    <MudText Typo="Typo.caption" Class="text-white" Style="opacity: 0.8;">
+                        Online
+                    </MudText>
+                </div>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Inherit" Size="Size.Small" />
+        </div>
+    </MudPaper>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions mb-4">
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" FullWidth="true" StartIcon="@Icons.Material.Filled.Add" Class="text-white justify-start">
+            Create Channel
+        </MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" FullWidth="true" StartIcon="@Icons.Material.Filled.PersonAdd" Class="text-white justify-start">
+            Invite People
+        </MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" FullWidth="true" StartIcon="@Icons.Material.Filled.Search" Class="text-white justify-start">
+            Search
+        </MudButton>
+    </div>
+
+    <!-- Recent Activity -->
+    <MudText Typo="Typo.caption" Class="text-white mb-2" Style="opacity: 0.8; text-transform: uppercase; font-weight: 600;">
+        Recent Activity
+    </MudText>
+    <div class="recent-activity">
+        @for (int i = 0; i < 5; i++)
+        {
+            <div class="activity-item d-flex align-center pa-2 mb-1" style="border-radius: 6px; cursor: pointer;" 
+                 @onmouseover="@(() => {})" @onmouseout="@(() => {})">
+                <MudAvatar Size="Size.Small" Color="Color.Secondary">
+                    <MudIcon Icon="@Icons.Material.Filled.Tag" Size="Size.Small" />
+                </MudAvatar>
+                <div class="ml-2 flex-grow-1">
+                    <MudText Typo="Typo.caption" Class="text-white">
+                        general
+                    </MudText>
+                    <MudText Typo="Typo.caption" Class="text-white" Style="opacity: 0.6;">
+                        New message
+                    </MudText>
+                </div>
+                <div class="notification-badge">
+                    <div class="badge-dot"></div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .workspace-sidebar {
+        min-height: 100vh;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #10b981;
+    }
+
+    .status-dot.away {
+        background-color: #f59e0b;
+    }
+
+    .status-dot.busy {
+        background-color: #ef4444;
+    }
+
+    .status-dot.offline {
+        background-color: #6b7280;
+    }
+
+    .activity-item:hover {
+        background-color: rgba(255,255,255,0.1) !important;
+    }
+
+    .notification-badge {
+        position: relative;
+    }
+
+    .badge-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: #ef4444;
+    }
+</style>
