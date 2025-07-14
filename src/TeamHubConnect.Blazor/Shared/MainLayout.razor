@@ -1,50 +1,334 @@
 @using TeamHubConnect.Blazor.Store.Auth
 @using TeamHubConnect.Blazor.Store.Workspace
+@using TeamHubConnect.Blazor.Components
 @using Fluxor
 @inherits FluxorComponent
 @inject IState<AuthState> AuthState
 @inject IState<WorkspaceState> WorkspaceState
+@inject IJSRuntime JSRuntime
+@implements IDisposable
 
 <MudThemeProvider @ref="@_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" Theme="_theme" />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-@if (AuthState.Value.IsAuthenticated)
-{
-    <MudLayout>
-        <!-- Sidebar -->
-        <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2" Variant="DrawerVariant.Persistent">
-            <WorkspaceSidebar />
-        </MudDrawer>
+<div class="main-layout" @onkeydown="HandleGlobalKeyDown" tabindex="0">
+    @if (AuthState.Value.IsAuthenticated)
+    {
+        <MudLayout>
+            <!-- Enhanced AppBar -->
+            <MudAppBar Elevation="0" Class="enhanced-appbar">
+                <MudIconButton Icon="Icons.Material.Filled.Menu" 
+                              Color="Color.Inherit" 
+                              Edge="Edge.Start" 
+                              OnClick="@ToggleDrawer" />
+                
+                <!-- Search trigger -->
+                <MudButton StartIcon="@Icons.Material.Filled.Search"
+                          Color="Color.Inherit"
+                          OnClick="OpenCommandPalette"
+                          Class="search-trigger">
+                    Buscar en TeamHub...
+                    <span class="search-shortcut">Ctrl+K</span>
+                </MudButton>
 
-        <!-- Main Content -->
-        <MudMainContent>
-            <MudContainer MaxWidth="MaxWidth.False" Class="pa-0 ma-0" Style="height: 100vh;">
-                <div class="d-flex" style="height: 100vh;">
-                    <!-- Channel Sidebar -->
-                    <div class="channel-sidebar" style="width: 240px; background-color: var(--mud-palette-surface); border-right: 1px solid var(--mud-palette-divider);">
-                        <ChannelSidebar />
-                    </div>
+                <MudSpacer />
 
-                    <!-- Chat Area -->
-                    <div class="chat-area flex-grow-1 d-flex flex-column">
-                        @Body
-                    </div>
+                <!-- Status and quick actions -->
+                <div class="appbar-actions">
+                    <MudIconButton Icon="@Icons.Material.Filled.Videocam" 
+                                  Color="Color.Inherit"
+                                  OnClick="StartVideoCall"
+                                  Title="Iniciar videollamada" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Notifications" 
+                                  Color="Color.Inherit"
+                                  OnClick="ShowNotifications"
+                                  Title="Notificaciones">
+                        @if (_unreadNotifications > 0)
+                        {
+                            <MudBadge Content="@_unreadNotifications.ToString()" 
+                                     Color="Color.Error" 
+                                     Origin="Origin.TopRight" 
+                                     Overlap="true" />
+                        }
+                    </MudIconButton>
+                    
+                    <!-- Theme toggle -->
+                    <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" 
+                                  Color="Color.Inherit"
+                                  OnClick="ToggleTheme"
+                                  Title="Cambiar tema" />
+
+                    <!-- User menu -->
+                    <MudMenu Icon="@Icons.Material.Filled.AccountCircle" 
+                            Color="Color.Inherit"
+                            Direction="Direction.Bottom"
+                            OffsetY="true">
+                        <MudMenuItem OnClick="ShowProfile">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" />
+                                Mi perfil
+                            </div>
+                        </MudMenuItem>
+                        <MudMenuItem OnClick="ShowPreferences">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <MudIcon Icon="@Icons.Material.Filled.Settings" Size="Size.Small" />
+                                Preferencias
+                            </div>
+                        </MudMenuItem>
+                        <MudDivider />
+                        <MudMenuItem OnClick="ShowKeyboardShortcuts">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <MudIcon Icon="@Icons.Material.Filled.Keyboard" Size="Size.Small" />
+                                Atajos de teclado
+                                <span class="ml-auto" style="font-size: 0.75rem; opacity: 0.7;">Ctrl+/</span>
+                            </div>
+                        </MudMenuItem>
+                        <MudDivider />
+                        <MudMenuItem OnClick="Logout">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <MudIcon Icon="@Icons.Material.Filled.Logout" Size="Size.Small" />
+                                Cerrar sesión
+                            </div>
+                        </MudMenuItem>
+                    </MudMenu>
                 </div>
-            </MudContainer>
-        </MudMainContent>
-    </MudLayout>
-}
-else
-{
-    <div class="auth-layout">
-        @Body
-    </div>
-}
+            </MudAppBar>
+
+            <!-- Sidebar -->
+            <MudDrawer @bind-Open="_drawerOpen" 
+                      ClipMode="DrawerClipMode.Always" 
+                      Elevation="2" 
+                      Variant="DrawerVariant.Persistent"
+                      Class="enhanced-drawer">
+                <MudDrawerHeader Class="drawer-header">
+                    <div class="workspace-info">
+                        <MudText Typo="Typo.h6" Color="Color.Primary">TeamHub Connect</MudText>
+                        <MudText Typo="Typo.body2" Style="opacity: 0.7;">Mi Workspace</MudText>
+                    </div>
+                    <MudIconButton Icon="@(_drawerOpen ? Icons.Material.Filled.ChevronLeft : Icons.Material.Filled.ChevronRight)"
+                                  Size="Size.Small"
+                                  OnClick="ToggleDrawer" />
+                </MudDrawerHeader>
+                <WorkspaceSidebar />
+            </MudDrawer>
+
+            <!-- Main Content -->
+            <MudMainContent Class="enhanced-main-content">
+                <div class="content-wrapper @(_showThreads ? "with-threads" : "")">
+                    <MudContainer MaxWidth="MaxWidth.False" Class="pa-0 ma-0" Style="height: calc(100vh - 64px);">
+                        <div class="d-flex" style="height: 100%;">
+                            <!-- Channel Sidebar -->
+                            <div class="channel-sidebar" style="width: 240px; background-color: var(--mud-palette-surface); border-right: 1px solid var(--mud-palette-divider);">
+                                <ChannelSidebar />
+                            </div>
+
+                            <!-- Chat Area -->
+                            <div class="chat-area flex-grow-1 d-flex flex-column">
+                                @Body
+                            </div>
+                        </div>
+                    </MudContainer>
+                    
+                    <!-- Thread sidebar -->
+                    <ThreadSidebar @bind-IsVisible="_showThreads" 
+                                  CurrentThread="_currentThread"
+                                  OnReplyAdded="HandleThreadReply" />
+                </div>
+            </MudMainContent>
+        </MudLayout>
+    }
+    else
+    {
+        <div class="auth-layout">
+            @Body
+        </div>
+    }
+
+    <!-- Command Palette -->
+    <CommandPalette @bind-IsVisible="_showCommandPalette" 
+                   OnItemSelected="HandleCommandPaletteSelection" />
+
+    <!-- Global loading overlay -->
+    @if (_isLoading)
+    {
+        <div class="global-loading">
+            <MudProgressCircular Size="Size.Large" Indeterminate="true" />
+            <MudText Typo="Typo.body1" Class="mt-4">@_loadingMessage</MudText>
+        </div>
+    }
+</div>
+
+<style>
+    .main-layout {
+        height: 100vh;
+        overflow: hidden;
+        outline: none;
+    }
+
+    .enhanced-appbar {
+        background: var(--mud-palette-surface) !important;
+        color: var(--mud-palette-text-primary) !important;
+        border-bottom: 1px solid var(--mud-palette-divider);
+        padding: 0 16px;
+    }
+
+    .search-trigger {
+        margin-left: 16px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        background: var(--mud-palette-action-hover);
+        color: var(--mud-palette-text-secondary);
+        text-transform: none;
+        justify-content: flex-start;
+        min-width: 300px;
+        position: relative;
+        transition: all 0.15s ease;
+    }
+
+    .search-trigger:hover {
+        background: var(--mud-palette-action-selected);
+    }
+
+    .search-shortcut {
+        position: absolute;
+        right: 12px;
+        font-size: 0.75rem;
+        opacity: 0.6;
+        padding: 2px 6px;
+        background: var(--mud-palette-surface);
+        border-radius: 4px;
+        border: 1px solid var(--mud-palette-divider);
+    }
+
+    .appbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .enhanced-drawer {
+        background: var(--mud-palette-surface);
+        border-right: 1px solid var(--mud-palette-divider);
+    }
+
+    .drawer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px;
+        border-bottom: 1px solid var(--mud-palette-divider);
+        min-height: 64px;
+    }
+
+    .workspace-info {
+        flex: 1;
+    }
+
+    .enhanced-main-content {
+        background: var(--mud-palette-background);
+    }
+
+    .content-wrapper {
+        transition: margin-right 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+    }
+
+    .content-wrapper.with-threads {
+        margin-right: 400px;
+    }
+
+    .global-loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        color: white;
+    }
+
+    .chat-area {
+        background: var(--mud-palette-background);
+    }
+
+    .channel-sidebar {
+        transition: width 0.25s ease;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .search-trigger {
+            min-width: 200px;
+        }
+        
+        .content-wrapper.with-threads {
+            margin-right: 0;
+        }
+        
+        .search-shortcut {
+            display: none;
+        }
+
+        .channel-sidebar {
+            position: absolute;
+            left: -240px;
+            transition: left 0.25s ease;
+            z-index: 1001;
+            height: 100%;
+        }
+
+        .channel-sidebar.mobile-open {
+            left: 0;
+        }
+    }
+
+    /* Improved theme variables */
+    :root {
+        --transition-duration: 0.15s;
+        --border-radius: 8px;
+        --shadow-elevation-1: 0 1px 3px rgba(0,0,0,0.1);
+        --shadow-elevation-2: 0 4px 6px rgba(0,0,0,0.1);
+        --shadow-elevation-3: 0 10px 15px rgba(0,0,0,0.1);
+    }
+
+    /* Custom scrollbar */
+    .channel-sidebar::-webkit-scrollbar,
+    .chat-area::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .channel-sidebar::-webkit-scrollbar-track,
+    .chat-area::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .channel-sidebar::-webkit-scrollbar-thumb,
+    .chat-area::-webkit-scrollbar-thumb {
+        background: var(--mud-palette-text-disabled);
+        border-radius: 3px;
+    }
+
+    .channel-sidebar::-webkit-scrollbar-thumb:hover,
+    .chat-area::-webkit-scrollbar-thumb:hover {
+        background: var(--mud-palette-text-secondary);
+    }
+</style>
 
 @code {
     private bool _drawerOpen = true;
     private bool _isDarkMode = false;
+    private bool _showCommandPalette = false;
+    private bool _showThreads = false;
+    private bool _isLoading = false;
+    private string _loadingMessage = "";
+    private int _unreadNotifications = 3;
+    private ThreadSidebar.ThreadViewModel? _currentThread;
     private MudThemeProvider _mudThemeProvider = null!;
 
     private readonly MudTheme _theme = new()
@@ -54,27 +338,56 @@ else
             Primary = "#6366f1",
             Secondary = "#8b5cf6",
             Tertiary = "#06b6d4",
-            AppbarBackground = "#6366f1",
+            Success = "#10b981",
+            Warning = "#f59e0b",
+            Error = "#ef4444",
+            Info = "#3b82f6",
+            AppbarBackground = "#ffffff",
             DrawerBackground = "#f8fafc",
             Surface = "#ffffff",
-            Background = "#f1f5f9"
+            Background = "#f1f5f9",
+            TextPrimary = "#1f2937",
+            TextSecondary = "#6b7280",
+            ActionDefault = "#9ca3af",
+            ActionDisabled = "#d1d5db",
+            Divider = "#e5e7eb"
         },
         PaletteDark = new PaletteDark()
         {
             Primary = "#818cf8",
             Secondary = "#a78bfa",
             Tertiary = "#22d3ee",
-            AppbarBackground = "#1e1b4b",
-            DrawerBackground = "#0f172a",
-            Surface = "#1e293b",
-            Background = "#0f172a"
+            Success = "#34d399",
+            Warning = "#fbbf24",
+            Error = "#f87171",
+            Info = "#60a5fa",
+            AppbarBackground = "#1f2937",
+            DrawerBackground = "#111827",
+            Surface = "#374151",
+            Background = "#1f2937",
+            TextPrimary = "#f9fafb",
+            TextSecondary = "#d1d5db",
+            ActionDefault = "#6b7280",
+            ActionDisabled = "#4b5563",
+            Divider = "#4b5563"
         },
         Typography = new Typography()
         {
             Default = new Default()
             {
-                FontFamily = new[] { "Roboto", "Helvetica", "Arial", "sans-serif" }
-            }
+                FontFamily = new[] { "Inter", "Roboto", "Helvetica", "Arial", "sans-serif" },
+                FontSize = "0.875rem",
+                LineHeight = 1.43
+            },
+            H1 = new H1() { FontSize = "2.5rem", FontWeight = 700, LineHeight = 1.2 },
+            H2 = new H2() { FontSize = "2rem", FontWeight = 600, LineHeight = 1.25 },
+            H3 = new H3() { FontSize = "1.75rem", FontWeight = 600, LineHeight = 1.3 },
+            H4 = new H4() { FontSize = "1.5rem", FontWeight = 600, LineHeight = 1.35 },
+            H5 = new H5() { FontSize = "1.25rem", FontWeight = 600, LineHeight = 1.4 },
+            H6 = new H6() { FontSize = "1.125rem", FontWeight = 600, LineHeight = 1.4 },
+            Body1 = new Body1() { FontSize = "1rem", LineHeight = 1.5 },
+            Body2 = new Body2() { FontSize = "0.875rem", LineHeight = 1.43 },
+            Caption = new Caption() { FontSize = "0.75rem", LineHeight = 1.33 }
         }
     };
 
@@ -84,6 +397,135 @@ else
         {
             _isDarkMode = await _mudThemeProvider.GetSystemPreference();
             StateHasChanged();
+            
+            // Configurar atajos de teclado globales
+            await JSRuntime.InvokeVoidAsync("setupGlobalKeyboardShortcuts");
         }
+    }
+
+    private async Task HandleGlobalKeyDown(KeyboardEventArgs e)
+    {
+        // Manejar atajos de teclado globales
+        if (e.CtrlKey || e.MetaKey)
+        {
+            switch (e.Key.ToLower())
+            {
+                case "k":
+                    e.PreventDefault();
+                    await OpenCommandPalette();
+                    break;
+                case "d":
+                    e.PreventDefault();
+                    await ToggleTheme();
+                    break;
+                case "/":
+                    e.PreventDefault();
+                    await ShowKeyboardShortcuts();
+                    break;
+                case "n":
+                    e.PreventDefault();
+                    // Crear nuevo canal/DM
+                    break;
+                case "f":
+                    e.PreventDefault();
+                    // Buscar en archivos
+                    break;
+            }
+        }
+        else if (e.Key == "Escape")
+        {
+            // Cerrar overlays abiertos
+            if (_showCommandPalette)
+            {
+                _showCommandPalette = false;
+                StateHasChanged();
+            }
+            else if (_showThreads)
+            {
+                _showThreads = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void ToggleDrawer()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private async Task OpenCommandPalette()
+    {
+        _showCommandPalette = true;
+        StateHasChanged();
+    }
+
+    private async Task ToggleTheme()
+    {
+        await _mudThemeProvider.ToggleDarkModeAsync();
+    }
+
+    private async Task StartVideoCall()
+    {
+        _isLoading = true;
+        _loadingMessage = "Iniciando videollamada...";
+        StateHasChanged();
+
+        await Task.Delay(2000); // Simular setup
+
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ShowNotifications()
+    {
+        // Implementar panel de notificaciones
+    }
+
+    private async Task ShowProfile()
+    {
+        // Implementar perfil de usuario
+    }
+
+    private async Task ShowPreferences()
+    {
+        // Implementar configuración
+    }
+
+    private async Task ShowKeyboardShortcuts()
+    {
+        // Implementar modal de atajos
+    }
+
+    private async Task Logout()
+    {
+        // Implementar logout
+    }
+
+    private async Task HandleCommandPaletteSelection(CommandPalette.SearchResultItem item)
+    {
+        _showCommandPalette = false;
+        // Manejar selección
+    }
+
+    private async Task HandleThreadReply(ThreadSidebar.ThreadReply reply)
+    {
+        // Manejar nueva respuesta en hilo
+        if (_currentThread != null)
+        {
+            _currentThread.Replies.Add(reply);
+            StateHasChanged();
+        }
+    }
+
+    public void ShowThread(ThreadSidebar.ThreadViewModel thread)
+    {
+        _currentThread = thread;
+        _showThreads = true;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        // Cleanup si es necesario
     }
 }

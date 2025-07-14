@@ -1,0 +1,572 @@
+@using TeamHubConnect.Blazor.Services
+@using MudBlazor
+@inject IJSRuntime JSRuntime
+@inject ISnackbar Snackbar
+
+<style>
+    .thread-sidebar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100vh;
+        width: 400px;
+        background: var(--mud-palette-surface);
+        border-left: 1px solid var(--mud-palette-divider);
+        transform: translateX(100%);
+        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .thread-sidebar.visible {
+        transform: translateX(0);
+    }
+
+    .thread-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--mud-palette-divider);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--mud-palette-surface);
+        min-height: 64px;
+    }
+
+    .thread-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+    }
+
+    .thread-context {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--mud-palette-divider);
+        background: var(--mud-palette-background-grey);
+    }
+
+    .context-message {
+        position: relative;
+        padding-left: 12px;
+    }
+
+    .context-message::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: var(--mud-palette-primary);
+        border-radius: 2px;
+    }
+
+    .thread-replies {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 0;
+    }
+
+    .thread-reply {
+        padding: 8px 20px;
+        margin-bottom: 8px;
+        transition: background-color 0.1s ease;
+    }
+
+    .thread-reply:hover {
+        background: var(--mud-palette-action-hover-alpha);
+    }
+
+    .reply-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+        font-size: 0.875rem;
+    }
+
+    .reply-author {
+        font-weight: 600;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .reply-time {
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.75rem;
+    }
+
+    .reply-content {
+        color: var(--mud-palette-text-primary);
+        line-height: 1.4;
+        margin-left: 32px;
+    }
+
+    .thread-composer {
+        border-top: 1px solid var(--mud-palette-divider);
+        padding: 16px 20px;
+        background: var(--mud-palette-surface);
+    }
+
+    .composer-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .composer-input {
+        min-height: 80px !important;
+    }
+
+    .composer-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .composer-tools {
+        display: flex;
+        gap: 4px;
+    }
+
+    .thread-stats {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 8px 0;
+        font-size: 0.875rem;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .reply-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        font-size: 0.75rem;
+        color: var(--mud-palette-primary);
+        cursor: pointer;
+        padding: 4px 0;
+    }
+
+    .reply-indicator:hover {
+        text-decoration: underline;
+    }
+
+    .participant-avatars {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 8px;
+    }
+
+    .participant-avatar {
+        border: 2px solid var(--mud-palette-surface);
+        margin-left: -4px;
+    }
+
+    .participant-avatar:first-child {
+        margin-left: 0;
+    }
+
+    .participant-count {
+        font-size: 0.75rem;
+        color: var(--mud-palette-text-secondary);
+        margin-left: 8px;
+    }
+
+    .empty-thread {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 20px;
+        text-align: center;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .typing-indicator {
+        padding: 8px 20px;
+        font-style: italic;
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.875rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    @media (max-width: 768px) {
+        .thread-sidebar {
+            width: 100vw;
+            left: 0;
+            transform: translateX(100%);
+        }
+    }
+</style>
+
+<div class="thread-sidebar @(IsVisible ? "visible" : "")" @onclick:stopPropagation="true">
+    @if (CurrentThread != null)
+    {
+        <div class="thread-header">
+            <div class="thread-title">
+                <MudIcon Icon="@Icons.Material.Filled.ChatBubbleOutline" Size="Size.Small" />
+                <MudText Typo="Typo.h6">Hilo</MudText>
+                <MudChip Text="@CurrentThread.ReplyCount.ToString()" 
+                         Size="Size.Small" 
+                         Color="Color.Primary" 
+                         Variant="Variant.Text" />
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" 
+                          OnClick="CloseThread" 
+                          Size="Size.Small" />
+        </div>
+
+        <div class="thread-context">
+            <div class="context-message">
+                <div class="reply-header">
+                    <MudAvatar Size="Size.Small">
+                        @if (!string.IsNullOrEmpty(CurrentThread.OriginalMessage.AuthorAvatar))
+                        {
+                            <MudImage Src="@CurrentThread.OriginalMessage.AuthorAvatar" />
+                        }
+                        else
+                        {
+                            @CurrentThread.OriginalMessage.AuthorName.Substring(0, 1).ToUpper()
+                        }
+                    </MudAvatar>
+                    <span class="reply-author">@CurrentThread.OriginalMessage.AuthorName</span>
+                    <span class="reply-time">@FormatTime(CurrentThread.OriginalMessage.Timestamp)</span>
+                </div>
+                <div class="reply-content">
+                    @CurrentThread.OriginalMessage.Content
+                </div>
+                
+                @if (CurrentThread.Participants.Any())
+                {
+                    <div class="participant-avatars">
+                        @foreach (var participant in CurrentThread.Participants.Take(5))
+                        {
+                            <MudAvatar Size="Size.Small" Class="participant-avatar">
+                                @if (!string.IsNullOrEmpty(participant.Avatar))
+                                {
+                                    <MudImage Src="@participant.Avatar" />
+                                }
+                                else
+                                {
+                                    @participant.Name.Substring(0, 1).ToUpper()
+                                }
+                            </MudAvatar>
+                        }
+                        @if (CurrentThread.Participants.Count > 5)
+                        {
+                            <span class="participant-count">+@(CurrentThread.Participants.Count - 5) más</span>
+                        }
+                    </div>
+                }
+
+                <div class="thread-stats">
+                    <div class="stat-item">
+                        <MudIcon Icon="@Icons.Material.Filled.Reply" Size="Size.Small" />
+                        <span>@CurrentThread.ReplyCount respuestas</span>
+                    </div>
+                    <div class="stat-item">
+                        <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" />
+                        <span>Última: @FormatTime(CurrentThread.LastReplyTime)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="thread-replies">
+            @if (CurrentThread.Replies.Any())
+            {
+                @foreach (var reply in CurrentThread.Replies)
+                {
+                    <div class="thread-reply">
+                        <div class="reply-header">
+                            <MudAvatar Size="Size.Small">
+                                @if (!string.IsNullOrEmpty(reply.AuthorAvatar))
+                                {
+                                    <MudImage Src="@reply.AuthorAvatar" />
+                                }
+                                else
+                                {
+                                    @reply.AuthorName.Substring(0, 1).ToUpper()
+                                }
+                            </MudAvatar>
+                            <span class="reply-author">@reply.AuthorName</span>
+                            <span class="reply-time">@FormatTime(reply.Timestamp)</span>
+                        </div>
+                        <div class="reply-content">
+                            @reply.Content
+                        </div>
+                    </div>
+                }
+
+                @if (IsTyping)
+                {
+                    <div class="typing-indicator">
+                        <div class="typing-dots">
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                        </div>
+                        <span>@TypingUser está escribiendo...</span>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="empty-thread">
+                    <MudIcon Icon="@Icons.Material.Filled.ChatBubbleOutline" 
+                            Size="Size.Large" 
+                            Style="opacity: 0.3; margin-bottom: 16px;" />
+                    <MudText Typo="Typo.h6" Style="margin-bottom: 8px;">Comienza el hilo</MudText>
+                    <MudText Typo="Typo.body2" Style="max-width: 280px;">
+                        Responde a este mensaje para iniciar una conversación en hilo.
+                    </MudText>
+                </div>
+            }
+        </div>
+
+        <div class="thread-composer">
+            <div class="composer-wrapper">
+                <MudTextField @bind-Value="ReplyContent"
+                              @onkeydown="HandleKeyDown"
+                              @oninput="HandleTyping"
+                              Placeholder="Responder al hilo..."
+                              Variant="Variant.Outlined"
+                              Lines="3"
+                              Class="composer-input"
+                              Immediate="true" />
+
+                <div class="composer-actions">
+                    <div class="composer-tools">
+                        <MudIconButton Icon="@Icons.Material.Filled.AttachFile" 
+                                      Size="Size.Small" 
+                                      OnClick="AttachFile" />
+                        <MudIconButton Icon="@Icons.Material.Filled.EmojiEmotions" 
+                                      Size="Size.Small" 
+                                      OnClick="ShowEmojiPicker" />
+                        <MudIconButton Icon="@Icons.Material.Filled.AlternateEmail" 
+                                      Size="Size.Small" 
+                                      OnClick="ShowMentions" />
+                    </div>
+
+                    <MudButton Variant="Variant.Filled" 
+                              Color="Color.Primary" 
+                              OnClick="SendReply"
+                              Disabled="@(string.IsNullOrWhiteSpace(ReplyContent) || IsSending)"
+                              StartIcon="@Icons.Material.Filled.Send"
+                              Size="Size.Small">
+                        @if (IsSending)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                        }
+                        else
+                        {
+                            <span>Enviar</span>
+                        }
+                    </MudButton>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+    [Parameter] public ThreadViewModel? CurrentThread { get; set; }
+    [Parameter] public EventCallback<ThreadReply> OnReplyAdded { get; set; }
+
+    private string ReplyContent = "";
+    private bool IsSending = false;
+    private bool IsTyping = false;
+    private string TypingUser = "";
+    private Timer? typingTimer;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && CurrentThread != null)
+        {
+            // Marcar el hilo como leído
+            await MarkThreadAsRead();
+        }
+    }
+
+    private async Task SendReply()
+    {
+        if (string.IsNullOrWhiteSpace(ReplyContent) || CurrentThread == null)
+            return;
+
+        IsSending = true;
+
+        try
+        {
+            var reply = new ThreadReply
+            {
+                Id = Guid.NewGuid(),
+                ThreadId = CurrentThread.Id,
+                AuthorName = "Usuario Actual", // Obtener del contexto
+                AuthorAvatar = "",
+                Content = ReplyContent.Trim(),
+                Timestamp = DateTime.Now
+            };
+
+            await OnReplyAdded.InvokeAsync(reply);
+            
+            // Limpiar el campo
+            ReplyContent = "";
+            
+            Snackbar.Add("Respuesta enviada", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al enviar respuesta: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            IsSending = false;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            e.PreventDefault();
+            await SendReply();
+        }
+    }
+
+    private async Task HandleTyping()
+    {
+        // Implementar indicador de "está escribiendo"
+        typingTimer?.Dispose();
+        typingTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(() =>
+            {
+                // Enviar evento de "dejó de escribir"
+                StateHasChanged();
+            });
+        }, null, 2000, Timeout.Infinite);
+    }
+
+    private async Task AttachFile()
+    {
+        Snackbar.Add("Funcionalidad de adjuntar archivo próximamente", Severity.Info);
+    }
+
+    private async Task ShowEmojiPicker()
+    {
+        Snackbar.Add("Selector de emojis próximamente", Severity.Info);
+    }
+
+    private async Task ShowMentions()
+    {
+        Snackbar.Add("Menciones próximamente", Severity.Info);
+    }
+
+    private async Task CloseThread()
+    {
+        IsVisible = false;
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+
+    private async Task MarkThreadAsRead()
+    {
+        // Implementar marcado como leído
+        await Task.Delay(1);
+    }
+
+    private string FormatTime(DateTime timestamp)
+    {
+        var now = DateTime.Now;
+        var diff = now - timestamp;
+
+        if (diff.TotalMinutes < 1)
+            return "ahora";
+        else if (diff.TotalHours < 1)
+            return $"hace {(int)diff.TotalMinutes}m";
+        else if (diff.TotalDays < 1)
+            return $"hace {(int)diff.TotalHours}h";
+        else if (diff.TotalDays < 7)
+            return $"hace {(int)diff.TotalDays}d";
+        else
+            return timestamp.ToString("dd/MM");
+    }
+
+    public void Dispose()
+    {
+        typingTimer?.Dispose();
+    }
+
+    // Modelos de vista
+    public class ThreadViewModel
+    {
+        public Guid Id { get; set; }
+        public MessageViewModel OriginalMessage { get; set; } = null!;
+        public List<ThreadReply> Replies { get; set; } = new();
+        public List<ThreadParticipant> Participants { get; set; } = new();
+        public int ReplyCount => Replies.Count;
+        public DateTime LastReplyTime => Replies.LastOrDefault()?.Timestamp ?? OriginalMessage.Timestamp;
+    }
+
+    public class MessageViewModel
+    {
+        public Guid Id { get; set; }
+        public string AuthorName { get; set; } = "";
+        public string AuthorAvatar { get; set; } = "";
+        public string Content { get; set; } = "";
+        public DateTime Timestamp { get; set; }
+    }
+
+    public class ThreadReply
+    {
+        public Guid Id { get; set; }
+        public Guid ThreadId { get; set; }
+        public string AuthorName { get; set; } = "";
+        public string AuthorAvatar { get; set; } = "";
+        public string Content { get; set; } = "";
+        public DateTime Timestamp { get; set; }
+    }
+
+    public class ThreadParticipant
+    {
+        public Guid UserId { get; set; }
+        public string Name { get; set; } = "";
+        public string Avatar { get; set; } = "";
+    }
+}
+
+<style>
+    .typing-dots {
+        display: flex;
+        gap: 2px;
+    }
+
+    .typing-dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: currentColor;
+        animation: typingPulse 1.4s infinite;
+    }
+
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typingPulse {
+        0%, 60%, 100% { opacity: 0.3; }
+        30% { opacity: 1; }
+    }
+</style>

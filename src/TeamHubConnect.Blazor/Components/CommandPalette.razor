@@ -1,0 +1,655 @@
+@using TeamHubConnect.Blazor.Services
+@using TeamHubConnect.Blazor.Store.Auth
+@using MudBlazor
+@implements IDisposable
+@inject IJSRuntime JSRuntime
+@inject ISnackbar Snackbar
+
+<style>
+    .command-palette-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 9999;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 10vh;
+        animation: fadeIn 0.15s ease-out;
+    }
+
+    .command-palette {
+        background: var(--mud-palette-surface);
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        width: 90%;
+        max-width: 600px;
+        max-height: 70vh;
+        overflow: hidden;
+        animation: slideDown 0.2s ease-out;
+    }
+
+    .command-search {
+        padding: 20px;
+        border-bottom: 1px solid var(--mud-palette-divider);
+    }
+
+    .command-results {
+        max-height: 50vh;
+        overflow-y: auto;
+        padding: 8px 0;
+    }
+
+    .result-section {
+        margin-bottom: 16px;
+    }
+
+    .section-header {
+        padding: 8px 20px 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--mud-palette-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .result-item {
+        padding: 12px 20px;
+        cursor: pointer;
+        transition: background-color 0.1s ease;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .result-item:hover,
+    .result-item.selected {
+        background: var(--mud-palette-action-hover);
+    }
+
+    .result-icon {
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .result-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .result-title {
+        font-weight: 500;
+        margin-bottom: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .result-subtitle {
+        font-size: 0.875rem;
+        color: var(--mud-palette-text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .result-shortcut {
+        font-size: 0.75rem;
+        background: var(--mud-palette-action-hover);
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .no-results {
+        padding: 40px 20px;
+        text-align: center;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .search-field {
+        font-size: 1.1rem;
+    }
+
+    .search-field input {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+</style>
+
+@if (IsVisible)
+{
+    <div class="command-palette-overlay" @onclick="CloseIfClickedOutside" @onkeydown="HandleKeyDown">
+        <div class="command-palette" @onclick:stopPropagation="true">
+            <div class="command-search">
+                <MudTextField @ref="searchField"
+                              @bind-Value="SearchQuery"
+                              @oninput="OnSearchInput"
+                              Placeholder="Buscar mensajes, archivos, personas, canales..."
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Class="search-field"
+                              Immediate="true"
+                              DisableUnderLine="true" />
+            </div>
+
+            <div class="command-results">
+                @if (IsLoading)
+                {
+                    <div style="padding: 20px; text-align: center;">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    </div>
+                }
+                else if (HasResults)
+                {
+                    @if (RecentItems.Any())
+                    {
+                        <div class="result-section">
+                            <div class="section-header">Recientes</div>
+                            @foreach (var item in RecentItems.Take(3))
+                            {
+                                <div class="result-item @(SelectedIndex == GetItemIndex(item) ? "selected" : "")"
+                                     @onclick="() => SelectItem(item)">
+                                    <div class="result-icon">
+                                        <MudIcon Icon="@GetItemIcon(item)" Size="Size.Small" />
+                                    </div>
+                                    <div class="result-content">
+                                        <div class="result-title">@item.Title</div>
+                                        <div class="result-subtitle">@item.Subtitle</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (ChannelResults.Any())
+                    {
+                        <div class="result-section">
+                            <div class="section-header">Canales</div>
+                            @foreach (var channel in ChannelResults.Take(5))
+                            {
+                                <div class="result-item @(SelectedIndex == GetItemIndex(channel) ? "selected" : "")"
+                                     @onclick="() => SelectItem(channel)">
+                                    <div class="result-icon">
+                                        <MudIcon Icon="@(channel.IsPrivate ? Icons.Material.Filled.Lock : Icons.Material.Filled.Tag)" Size="Size.Small" />
+                                    </div>
+                                    <div class="result-content">
+                                        <div class="result-title"># @channel.Name</div>
+                                        <div class="result-subtitle">@channel.MemberCount miembros</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (MessageResults.Any())
+                    {
+                        <div class="result-section">
+                            <div class="section-header">Mensajes</div>
+                            @foreach (var message in MessageResults.Take(5))
+                            {
+                                <div class="result-item @(SelectedIndex == GetItemIndex(message) ? "selected" : "")"
+                                     @onclick="() => SelectItem(message)">
+                                    <div class="result-icon">
+                                        <MudIcon Icon="@Icons.Material.Filled.Chat" Size="Size.Small" />
+                                    </div>
+                                    <div class="result-content">
+                                        <div class="result-title">@message.Author</div>
+                                        <div class="result-subtitle">@message.Content</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (UserResults.Any())
+                    {
+                        <div class="result-section">
+                            <div class="section-header">Personas</div>
+                            @foreach (var user in UserResults.Take(5))
+                            {
+                                <div class="result-item @(SelectedIndex == GetItemIndex(user) ? "selected" : "")"
+                                     @onclick="() => SelectItem(user)">
+                                    <div class="result-icon">
+                                        <MudAvatar Size="Size.Small">
+                                            @if (!string.IsNullOrEmpty(user.Avatar))
+                                            {
+                                                <MudImage Src="@user.Avatar" />
+                                            }
+                                            else
+                                            {
+                                                @user.DisplayName.Substring(0, 1).ToUpper()
+                                            }
+                                        </MudAvatar>
+                                    </div>
+                                    <div class="result-content">
+                                        <div class="result-title">@user.DisplayName</div>
+                                        <div class="result-subtitle">@user.Status</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (QuickActions.Any())
+                    {
+                        <div class="result-section">
+                            <div class="section-header">Acciones</div>
+                            @foreach (var action in QuickActions.Take(3))
+                            {
+                                <div class="result-item @(SelectedIndex == GetItemIndex(action) ? "selected" : "")"
+                                     @onclick="() => SelectItem(action)">
+                                    <div class="result-icon">
+                                        <MudIcon Icon="@action.Icon" Size="Size.Small" />
+                                    </div>
+                                    <div class="result-content">
+                                        <div class="result-title">@action.Title</div>
+                                        <div class="result-subtitle">@action.Description</div>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(action.Shortcut))
+                                    {
+                                        <div class="result-shortcut">@action.Shortcut</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+                else if (!string.IsNullOrEmpty(SearchQuery))
+                {
+                    <div class="no-results">
+                        <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Large" Style="margin-bottom: 8px; opacity: 0.5;" />
+                        <div>No se encontraron resultados para "@SearchQuery"</div>
+                        <div style="font-size: 0.875rem; margin-top: 4px; opacity: 0.7;">
+                            Intenta con diferentes términos de búsqueda
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="result-section">
+                        <div class="section-header">Acciones rápidas</div>
+                        @foreach (var action in QuickActions)
+                        {
+                            <div class="result-item @(SelectedIndex == GetItemIndex(action) ? "selected" : "")"
+                                 @onclick="() => SelectItem(action)">
+                                <div class="result-icon">
+                                    <MudIcon Icon="@action.Icon" Size="Size.Small" />
+                                </div>
+                                <div class="result-content">
+                                    <div class="result-title">@action.Title</div>
+                                    <div class="result-subtitle">@action.Description</div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(action.Shortcut))
+                                {
+                                    <div class="result-shortcut">@action.Shortcut</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+    [Parameter] public EventCallback<SearchResultItem> OnItemSelected { get; set; }
+
+    private MudTextField<string> searchField = null!;
+    private string SearchQuery = "";
+    private bool IsLoading = false;
+    private int SelectedIndex = 0;
+    private Timer? searchTimer;
+
+    // Resultados de búsqueda
+    private List<SearchResultItem> RecentItems = new();
+    private List<ChannelSearchResult> ChannelResults = new();
+    private List<MessageSearchResult> MessageResults = new();
+    private List<UserSearchResult> UserResults = new();
+    private List<QuickAction> QuickActions = new();
+
+    private bool HasResults => RecentItems.Any() || ChannelResults.Any() || MessageResults.Any() || UserResults.Any();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && IsVisible)
+        {
+            await FocusSearchField();
+            LoadQuickActions();
+            LoadRecentItems();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible)
+        {
+            await FocusSearchField();
+            if (string.IsNullOrEmpty(SearchQuery))
+            {
+                LoadQuickActions();
+                LoadRecentItems();
+            }
+        }
+    }
+
+    private async Task FocusSearchField()
+    {
+        if (searchField?.InputReference != null)
+        {
+            await Task.Delay(100); // Pequeño delay para asegurar que el DOM esté listo
+            await searchField.InputReference.FocusAsync();
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        SearchQuery = e.Value?.ToString() ?? "";
+        SelectedIndex = 0;
+
+        // Debounce search
+        searchTimer?.Dispose();
+        if (!string.IsNullOrEmpty(SearchQuery))
+        {
+            IsLoading = true;
+            StateHasChanged();
+
+            searchTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await PerformSearch();
+                    IsLoading = false;
+                    StateHasChanged();
+                });
+            }, null, 300, Timeout.Infinite);
+        }
+        else
+        {
+            ClearResults();
+            LoadQuickActions();
+            LoadRecentItems();
+        }
+    }
+
+    private async Task PerformSearch()
+    {
+        ClearResults();
+
+        try
+        {
+            // Simular búsqueda - en implementación real, llamar a servicios
+            await Task.Delay(100); // Simular latencia de red
+
+            if (SearchQuery.StartsWith("#"))
+            {
+                // Búsqueda de canales
+                ChannelResults = await SearchChannels(SearchQuery.Substring(1));
+            }
+            else if (SearchQuery.StartsWith("@"))
+            {
+                // Búsqueda de usuarios
+                UserResults = await SearchUsers(SearchQuery.Substring(1));
+            }
+            else
+            {
+                // Búsqueda general
+                var tasks = new[]
+                {
+                    SearchChannels(SearchQuery),
+                    SearchMessages(SearchQuery),
+                    SearchUsers(SearchQuery)
+                };
+
+                var results = await Task.WhenAll(tasks);
+                ChannelResults = results[0];
+                MessageResults = (List<MessageSearchResult>)results[1];
+                UserResults = (List<UserSearchResult>)results[2];
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error en la búsqueda: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void LoadQuickActions()
+    {
+        QuickActions = new List<QuickAction>
+        {
+            new("Crear canal", "Crear un nuevo canal", Icons.Material.Filled.Add, "Ctrl+N"),
+            new("Buscar en archivos", "Buscar contenido en archivos", Icons.Material.Filled.Search, "Ctrl+F"),
+            new("Invitar personas", "Invitar miembros al workspace", Icons.Material.Filled.PersonAdd, "Ctrl+I"),
+            new("Configuración", "Abrir configuración", Icons.Material.Filled.Settings, "Ctrl+,"),
+            new("Cambiar tema", "Alternar entre tema claro y oscuro", Icons.Material.Filled.DarkMode, "Ctrl+D"),
+        };
+    }
+
+    private void LoadRecentItems()
+    {
+        // En implementación real, cargar desde almacenamiento local o servicio
+        RecentItems = new List<SearchResultItem>
+        {
+            new("general", "Canal • 45 miembros", "channel"),
+            new("María García", "Activa hace 5 minutos", "user"),
+            new("Proyecto Q1", "Archivo • Hace 2 horas", "file")
+        };
+    }
+
+    private async Task<List<ChannelSearchResult>> SearchChannels(string query)
+    {
+        // Simular búsqueda de canales
+        await Task.Delay(50);
+        return new List<ChannelSearchResult>
+        {
+            new("general", false, 45),
+            new("desarrollo", false, 12),
+            new("privado-admin", true, 3)
+        }.Where(c => c.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private async Task<List<MessageSearchResult>> SearchMessages(string query)
+    {
+        // Simular búsqueda de mensajes
+        await Task.Delay(75);
+        return new List<MessageSearchResult>
+        {
+            new("Juan Pérez", $"Encontré la solución que mencionaste sobre {query}...", DateTime.Now.AddHours(-2)),
+            new("Ana López", $"¿Alguien puede ayudar con {query}?", DateTime.Now.AddMinutes(-30))
+        }.Where(m => m.Content.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private async Task<List<UserSearchResult>> SearchUsers(string query)
+    {
+        // Simular búsqueda de usuarios
+        await Task.Delay(25);
+        return new List<UserSearchResult>
+        {
+            new("María García", "Conectada", "/avatars/maria.jpg"),
+            new("Carlos Ruiz", "Ausente", ""),
+            new("Ana López", "En reunión", "/avatars/ana.jpg")
+        }.Where(u => u.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private void ClearResults()
+    {
+        ChannelResults.Clear();
+        MessageResults.Clear();
+        UserResults.Clear();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                await Close();
+                break;
+            case "ArrowDown":
+                MoveSelection(1);
+                break;
+            case "ArrowUp":
+                MoveSelection(-1);
+                break;
+            case "Enter":
+                await SelectCurrentItem();
+                break;
+        }
+    }
+
+    private void MoveSelection(int direction)
+    {
+        var totalItems = GetTotalItems();
+        if (totalItems == 0) return;
+
+        SelectedIndex = Math.Max(0, Math.Min(totalItems - 1, SelectedIndex + direction));
+        StateHasChanged();
+    }
+
+    private int GetTotalItems()
+    {
+        return RecentItems.Count + ChannelResults.Count + MessageResults.Count + UserResults.Count + QuickActions.Count;
+    }
+
+    private int GetItemIndex(object item)
+    {
+        var index = 0;
+        
+        // Recent items
+        var recentIndex = RecentItems.FindIndex(i => i == item);
+        if (recentIndex >= 0) return index + recentIndex;
+        index += RecentItems.Count;
+
+        // Channels
+        var channelIndex = ChannelResults.FindIndex(i => i == item);
+        if (channelIndex >= 0) return index + channelIndex;
+        index += ChannelResults.Count;
+
+        // Messages
+        var messageIndex = MessageResults.FindIndex(i => i == item);
+        if (messageIndex >= 0) return index + messageIndex;
+        index += MessageResults.Count;
+
+        // Users
+        var userIndex = UserResults.FindIndex(i => i == item);
+        if (userIndex >= 0) return index + userIndex;
+        index += UserResults.Count;
+
+        // Quick actions
+        var actionIndex = QuickActions.FindIndex(i => i == item);
+        if (actionIndex >= 0) return index + actionIndex;
+
+        return -1;
+    }
+
+    private string GetItemIcon(SearchResultItem item)
+    {
+        return item.Type switch
+        {
+            "channel" => Icons.Material.Filled.Tag,
+            "user" => Icons.Material.Filled.Person,
+            "file" => Icons.Material.Filled.InsertDriveFile,
+            _ => Icons.Material.Filled.Search
+        };
+    }
+
+    private async Task SelectCurrentItem()
+    {
+        var allItems = new List<object>();
+        allItems.AddRange(RecentItems);
+        allItems.AddRange(ChannelResults);
+        allItems.AddRange(MessageResults);
+        allItems.AddRange(UserResults);
+        allItems.AddRange(QuickActions);
+
+        if (SelectedIndex >= 0 && SelectedIndex < allItems.Count)
+        {
+            await SelectItem(allItems[SelectedIndex]);
+        }
+    }
+
+    private async Task SelectItem(object item)
+    {
+        switch (item)
+        {
+            case QuickAction action:
+                await ExecuteAction(action);
+                break;
+            case ChannelSearchResult channel:
+                // Navegar al canal
+                Snackbar.Add($"Navegando al canal #{channel.Name}", Severity.Info);
+                break;
+            case UserSearchResult user:
+                // Abrir DM con usuario
+                Snackbar.Add($"Abriendo conversación con {user.DisplayName}", Severity.Info);
+                break;
+            case MessageSearchResult message:
+                // Navegar al mensaje
+                Snackbar.Add($"Navegando al mensaje de {message.Author}", Severity.Info);
+                break;
+        }
+
+        await Close();
+    }
+
+    private async Task ExecuteAction(QuickAction action)
+    {
+        Snackbar.Add($"Ejecutando: {action.Title}", Severity.Info);
+        // Implementar acciones específicas aquí
+    }
+
+    private void CloseIfClickedOutside()
+    {
+        _ = Close();
+    }
+
+    private async Task Close()
+    {
+        IsVisible = false;
+        SearchQuery = "";
+        SelectedIndex = 0;
+        ClearResults();
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+
+    public void Dispose()
+    {
+        searchTimer?.Dispose();
+    }
+
+    // Clases de datos
+    public record SearchResultItem(string Title, string Subtitle, string Type);
+    public record ChannelSearchResult(string Name, bool IsPrivate, int MemberCount);
+    public record MessageSearchResult(string Author, string Content, DateTime Timestamp);
+    public record UserSearchResult(string DisplayName, string Status, string Avatar);
+    public record QuickAction(string Title, string Description, string Icon, string Shortcut = "");
+}
